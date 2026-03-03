@@ -1,0 +1,25 @@
+{
+  "default_material_type": "ti",
+  "routes": {
+    "ti": {
+      "aliases": ["ti", "titanium", "titanium alloy"],
+      "keywords": ["titanium", "high temperature", "aerospace", "high strength"]
+    },
+    "steel": {
+      "aliases": ["steel", "stainless steel"],
+      "keywords": ["steel", "stainless", "martensitic", "ferritic"]
+    },
+    "al": {
+      "aliases": ["al", "aluminum", "aluminium"],
+      "keywords": ["aluminum", "aluminium", "lightweight"]
+    },
+    "hea": {
+      "aliases": ["hea", "high entropy alloy", "high-entropy alloy"],
+      "keywords": ["high entropy", "hea", "multi principal"]
+    },
+    "hea_pitting": {
+      "aliases": ["hea_pitting", "pitting", "corrosion", "ep"],
+      "keywords": ["pitting", "corrosion", "ep", "cl concentration", "chloride"]
+    }
+  }
+}

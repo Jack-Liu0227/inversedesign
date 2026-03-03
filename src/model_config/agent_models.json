@@ -1,0 +1,32 @@
+{
+  "default": {
+    "provider": "echoflow",
+    "model_id_env": "MODEL_ID"
+  },
+  "agents": {
+    "material_router/agent": {
+      "provider": "echoflow",
+      "model_id": ""
+    },
+    "material_predictor/agent": {
+      "provider": "echoflow",
+      "model_id": ""
+    },
+    "material_recommender/agent": {
+      "provider": "echoflow",
+      "model_id": ""
+    },
+    "material_predictor/fewshot": {
+      "provider": "echoflow",
+      "model_id": ""
+    },
+    "material_review/agent": {
+      "provider": "echoflow",
+      "model_id": ""
+    },
+    "workflow/fewshot": {
+      "provider": "echoflow",
+      "model_id": ""
+    }
+  }
+}

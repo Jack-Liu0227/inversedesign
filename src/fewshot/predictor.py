@@ -1,0 +1,332 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+import json
+import re
+
+import pandas as pd
+
+from .data_processing import DataProcessor
+from .dataset_registry import resolve_dataset
+from .model import ModelCaller
+from .parsing import ResultParser
+from .prompting import PromptBuilder
+from .retrieval import SampleRetriever
+
+
+@dataclass
+class FewshotPrediction:
+    material_type: str
+    predicted_values: Dict[str, Optional[float]]
+    confidence: str
+    similar_samples: List[Dict[str, Any]]
+    prompt: str
+    llm_response: str
+
+
+class FewshotPredictor:
+    def __init__(
+        self,
+        model_name: str,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        temperature: float = 0.0,
+        embedding_model: str = "EmbeddingModel/all-MiniLM-L6-v2",
+        allow_mock_on_failure: bool = True,
+    ) -> None:
+        self.model_name = model_name
+        self.api_key = api_key
+        self.base_url = base_url
+        self.temperature = temperature
+        self.embedding_model = embedding_model
+        self.allow_mock_on_failure = allow_mock_on_failure
+
+    def predict(
+        self,
+        material_type: str,
+        composition: Dict[str, Any],
+        processing: Optional[Any] = None,
+        features: Optional[Any] = None,
+        top_k: Optional[int] = None,
+    ) -> FewshotPrediction:
+        spec = resolve_dataset(material_type)
+        processor = DataProcessor(
+            input_file=str(spec.dataset_path),
+            target_cols=spec.target_cols,
+        )
+        df = processor.load_data()
+        columns = processor.identify_columns(df)
+        if not columns.element_cols:
+            raise ValueError(f"No composition columns (*wt%/*at%) found in {spec.dataset_path}")
+
+        train_df = df.copy()
+        train_texts: List[str] = []
+        train_targets: List[Dict[str, Any]] = []
+        for _, row in train_df.iterrows():
+            row_comp = processor.format_composition(row, columns.element_cols)
+            row_processing = self._extract_non_empty_fields(row, columns.processing_cols)
+            row_features = self._extract_non_empty_fields(row, columns.feature_cols)
+            row_text = self._build_sample_text(
+                composition=row_comp,
+                processing=row_processing,
+                features=row_features,
+            )
+            train_texts.append(row_text)
+            train_targets.append({col: row.get(col) for col in columns.target_cols})
+
+        test_comp = self._format_input_composition(composition)
+        normalized_processing = self._normalize_context_payload(processing, label="processing")
+        normalized_features = self._normalize_context_payload(features, label="features")
+        test_text = self._build_sample_text(
+            composition=test_comp,
+            processing=normalized_processing,
+            features=normalized_features,
+        )
+        if not test_text:
+            test_text = self._build_target_fallback_text(
+                composition=composition,
+                processing=normalized_processing,
+                features=normalized_features,
+            )
+
+        k = top_k or spec.default_top_k
+        retriever = SampleRetriever(embedding_model=self.embedding_model, top_k=k)
+        retriever.fit(train_texts)
+        retrieved = retriever.retrieve(test_text, k)
+
+        prompt_builder = PromptBuilder(str(spec.template_path))
+        reference_samples: List[Dict[str, Any]] = []
+        similar_samples: List[Dict[str, Any]] = []
+        fallback_values: Dict[str, float] = {}
+        for col in columns.target_cols:
+            vals = [
+                train_targets[idx].get(col)
+                for idx, _ in retrieved
+                if pd.notna(train_targets[idx].get(col))
+            ]
+            fallback_values[col] = float(sum(vals) / len(vals)) if vals else 0.0
+
+        for idx, score in retrieved:
+            sample_text = train_texts[idx]
+            props = train_targets[idx]
+            reference_samples.append(
+                {
+                    "sample_text": sample_text,
+                    "similarity": score,
+                    "properties": props,
+                }
+            )
+            out = {"sample_text": sample_text, "similarity": score}
+            for col in columns.target_cols:
+                if pd.notna(props.get(col)):
+                    out[col] = float(props[col])
+            similar_samples.append(out)
+
+        prompt = prompt_builder.build_prompt(
+            target_properties=columns.target_cols,
+            test_sample=test_text,
+            reference_samples=reference_samples,
+        )
+        caller = ModelCaller(
+            model_name=self.model_name,
+            temperature=self.temperature,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            allow_mock_on_failure=self.allow_mock_on_failure,
+        )
+        llm_response = caller.call(prompt, fallback_predictions=fallback_values)
+        parser = ResultParser(columns.target_cols)
+        predicted = parser.parse(llm_response)
+        confidence = parser.extract_confidence(llm_response) or "low"
+
+        return FewshotPrediction(
+            material_type=material_type,
+            predicted_values=predicted,
+            confidence=confidence,
+            similar_samples=similar_samples,
+            prompt=prompt,
+            llm_response=llm_response,
+        )
+
+    @staticmethod
+    def _format_input_composition(composition: Dict[str, Any]) -> str:
+        parts = []
+        for key, value in composition.items():
+            if value is None:
+                continue
+            if isinstance(value, str):
+                text = value.strip()
+                if not text:
+                    continue
+                try:
+                    numeric = float(text)
+                    if numeric != 0:
+                        parts.append(f"{key} {numeric}")
+                    continue
+                except (TypeError, ValueError):
+                    match = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", text)
+                    if match:
+                        try:
+                            numeric = float(match.group(0))
+                            if numeric != 0:
+                                parts.append(f"{key} {numeric}")
+                            continue
+                        except (TypeError, ValueError):
+                            pass
+                    parts.append(f"{key} {text}")
+                    continue
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                parts.append(f"{key} {value}")
+                continue
+            if numeric != 0:
+                parts.append(f"{key} {numeric}")
+        return ", ".join(parts)
+
+    @staticmethod
+    def _build_target_fallback_text(
+        composition: Dict[str, Any],
+        processing: Dict[str, Any],
+        features: Dict[str, Any],
+    ) -> str:
+        lines = ["Target descriptors were empty after normalization."]
+        if composition:
+            lines.append(f"Raw composition: {json.dumps(composition, ensure_ascii=False)}")
+        if processing:
+            lines.append(f"Raw processing: {json.dumps(processing, ensure_ascii=False)}")
+        if features:
+            lines.append(f"Raw features: {json.dumps(features, ensure_ascii=False)}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_sample_text(
+        composition: str,
+        processing: Dict[str, Any],
+        features: Dict[str, Any],
+    ) -> str:
+        lines = []
+        if composition:
+            lines.append(f"Composition: {composition}")
+        for key, value in FewshotPredictor._prepare_processing_for_display(processing).items():
+            lines.append(f"{FewshotPredictor._display_key_name(key)}: {value}")
+        for key, value in features.items():
+            lines.append(f"{FewshotPredictor._display_key_name(key)}: {value}")
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _extract_non_empty_fields(row: pd.Series, cols: List[str]) -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        for col in cols:
+            value = row.get(col)
+            if pd.isna(value):
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            if hasattr(value, "item"):
+                try:
+                    value = value.item()
+                except Exception:
+                    pass
+            out[col] = value
+        return out
+
+    @staticmethod
+    def _normalize_context_payload(value: Optional[Any], label: str) -> Dict[str, Any]:
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return {
+                k: v
+                for k, v in value.items()
+                if v is not None and (not isinstance(v, str) or v.strip())
+            }
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return {}
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    return {
+                        k: v
+                        for k, v in parsed.items()
+                        if v is not None and (not isinstance(v, str) or v.strip())
+                    }
+            except Exception:
+                pass
+            normalized_label = "Heat treatment method" if label == "processing" else f"{label}_text"
+            return {normalized_label: FewshotPredictor._table_or_text_to_text(text)}
+        if isinstance(value, list):
+            normalized_label = "Heat treatment method" if label == "processing" else f"{label}_text"
+            return {normalized_label: FewshotPredictor._table_or_text_to_text(value)}
+        normalized_label = "Heat treatment method" if label == "processing" else f"{label}_text"
+        return {normalized_label: str(value)}
+
+    @staticmethod
+    def _table_or_text_to_text(raw: Any) -> str:
+        if isinstance(raw, list):
+            lines: List[str] = []
+            for idx, item in enumerate(raw, start=1):
+                if isinstance(item, dict):
+                    cells = ", ".join(f"{k}={v}" for k, v in item.items())
+                    lines.append(f"Row {idx}: {cells}")
+                else:
+                    lines.append(f"Row {idx}: {item}")
+            return "; ".join(lines)
+
+        text = str(raw).strip()
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        table_lines = [ln for ln in lines if "|" in ln]
+        if len(table_lines) < 2:
+            return text
+
+        headers = [h.strip() for h in table_lines[0].strip("|").split("|")]
+        rows = []
+        for ln in table_lines[1:]:
+            cells = [c.strip() for c in ln.strip("|").split("|")]
+            if len(cells) != len(headers):
+                continue
+            if all(set(c) <= {"-", ":"} for c in cells):
+                continue
+            row_text = ", ".join(f"{h}={v}" for h, v in zip(headers, cells))
+            rows.append(row_text)
+        if not rows:
+            return text
+        return "; ".join(f"Row {i + 1}: {r}" for i, r in enumerate(rows))
+
+    @staticmethod
+    def _prepare_processing_for_display(processing: Dict[str, Any]) -> Dict[str, Any]:
+        if not processing:
+            return {}
+
+        priority_keys = {
+            "processing_description",
+            "heat treatment method",
+            "processing description",
+            "process_description",
+            "process description",
+        }
+        for key, value in processing.items():
+            normalized = str(key).strip().lower().replace("_", " ")
+            if normalized in priority_keys and value is not None and str(value).strip():
+                return {"Heat treatment method": value}
+
+        if "Heat treatment method" in processing and str(processing["Heat treatment method"]).strip():
+            return {"Heat treatment method": processing["Heat treatment method"]}
+
+        return processing
+
+    @staticmethod
+    def _display_key_name(key: str) -> str:
+        key_str = str(key).strip()
+        lowered = key_str.lower().replace("_", " ")
+        if lowered in {"processing description", "process description"}:
+            return "Heat treatment method"
+        if lowered == "ph":
+            return "PH"
+        words = [w for w in key_str.replace("_", " ").split(" ") if w]
+        if not words:
+            return key_str
+        return " ".join(w if any(ch.isupper() for ch in w) else w.capitalize() for w in words)

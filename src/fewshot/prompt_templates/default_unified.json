@@ -1,0 +1,24 @@
+{
+  "template_name": "Default unified template",
+  "template_type": "unified",
+  "description": "Few-shot augmented correction protocol template for multi-target prediction.",
+  "system_role": "You are a materials science expert specializing in predicting multiple material properties simultaneously.",
+  "task_description": "Predict {target_properties_list} for the target material using systematic analysis.",
+  "input_format": "**Target Material**:\n{test_sample}",
+  "output_format": "Provide your systematic analysis and end with EXACTLY this JSON format:\n\nIMPORTANT: The \"confidence\" field MUST be EXACTLY one of these three values: \"high\", \"medium\", or \"low\". DO NOT use combinations like \"medium-high\" or \"medium-low\".\n\n```json\n{\n  \"predictions\": {\n    {predictions_json_template}\n  },\n  \"confidence\": \"<high/medium/low>\",\n  \"reasoning\": \"<your_analysis_summary>\"\n}\n```",
+  "reference_format": "**Reference Samples**:\n\nEach sample shows values for all target properties.\n\n{reference_samples}",
+  "analysis_protocol": "**Required Analysis Protocol**:\n\n1. **Reference-Driven Baseline Establishment**:\n   - **Classification**: First, classify the general family of all materials involved (references and target).\n   - **Primary Baseline Selection**: From the provided `Reference Samples`, identify the single sample that is the **most analogous** to the `Target Material`. This sample and its `Known True Values` will serve as your **primary baseline**. Justify your choice.\n   - **Sanity Check (Optional but Recommended)**: Use your general knowledge of standard materials as a secondary check.\n\n2. **Plausibility Assessment**:\n   - Assess the expected range for each target property based on your selected **primary baseline sample**.\n   - Consider the relationships between properties when applicable (e.g., strength-ductility trade-offs).\n\n3. **Interpolative Correction & Justification**:\n   - Formulate corrected values for each property.\n   - Your reasoning must be an **interpolation or extrapolation** from the primary baseline. Quantify how the **differences in characteristics** between the target and the baseline sample translate into specific property adjustments.\n   - Use fundamental materials principles to support *why* these differences lead to your calculated adjustments.",
+  "predictions_json_template": "",
+  "column_name_mapping": {
+    "Processing_Description": "Heat treatment method"
+  },
+  "apply_mapping_to_target": true,
+  "guided_mode": {
+    "enabled": false,
+    "description": "Guided mode uses model initial guesses to steer LLM predictions.",
+    "initial_guesses_source": "dataset/Ti/Catboost_guessvalue/all_predictions.csv",
+    "note": "Enable guided mode by passing initial_guesses to PromptBuilder."
+  },
+  "updated_at": "2026-01-18T03:24:00",
+  "created_at": "2025-12-09T16:39:20"
+}

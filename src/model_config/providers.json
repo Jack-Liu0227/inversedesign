@@ -1,0 +1,35 @@
+{
+  "default_provider": "ricardo",
+  "providers": {
+    "ollama": {
+      "api_key_env": "OLLAMA_API_KEY",
+      "base_url_env": "OLLAMA_BASE_URLS",
+      "default_model_env": "OLLAMA_MODEL",
+      "requires_api_key": false
+    },
+    "echoflow": {
+      "api_key_env": "ECHOFLOW_API_KEY",
+      "base_url_env": "ECHOFLOW_BASE_URLS",
+      "default_model_env": "ECHOFLOW_MODEL",
+      "requires_api_key": true
+    },
+    "ricardo": {
+      "api_key_env": "RICARDO_API_KEY",
+      "base_url_env": "RICARDO_BASE_URLS",
+      "default_model_env": "RICARDO_API_MODEL",
+      "requires_api_key": true
+    },
+    "openrouter": {
+      "api_key_env": "OPENROUTER_API_KEY",
+      "base_url_env": "OPENROUTER_BASE_URLS",
+      "default_model_env": "OPENROUTER_MODEL",
+      "requires_api_key": true
+    },
+    "deepseek": {
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "base_url_env": "DEEPSEEK_BASE_URLS",
+      "default_model_env": "DEEPSEEK_MODEL",
+      "requires_api_key": true
+    }
+  }
+}

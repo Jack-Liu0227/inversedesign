@@ -1,0 +1,22 @@
+PLOT_FORMAT = {
+    "figure": {"size": (6, 6), "dpi": 150},
+    "title": {"size": 12},
+    "axes": {"label_size": 11, "tick_size": 10},
+    "grid": {"enabled": True, "alpha": 0.3, "linestyle": "--", "linewidth": 0.8},
+    "legend": {"size": 9},
+    "metrics": {"size": 9, "loc": "upper left"},
+    "comparison": {
+        "width_per_target": 6,
+        "height": 8,
+        "title_size": 12,
+        "subplot_title_size": 11,
+        "subplot_title_pad": 14,
+        "metrics_size": 10,
+        "group_box_size": 10,
+        "label_size": 11,
+        "tick_size": 10,
+        "legend_size": 9,
+        "scatter_legend_loc": "upper right",
+        "scatter_legend_bbox": [0.98, 0.98],
+    },
+}

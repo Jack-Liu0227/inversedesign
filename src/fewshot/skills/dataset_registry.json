@@ -1,0 +1,39 @@
+{
+  "datasets": {
+    "ti": {
+      "name": "Titanium alloys",
+      "dataset_path": "datasets/Ti_alloys/titanium.csv",
+      "target_cols": ["UTS(MPa)", "El(%)"],
+      "template_path": "src/fewshot/prompt_templates/default_unified.json",
+      "default_top_k": 3
+    },
+    "steel": {
+      "name": "Steel alloys",
+      "dataset_path": "datasets/Steel/steel.csv",
+      "target_cols": ["YS(MPa)", "UTS(MPa)", "El(%)"],
+      "template_path": "src/fewshot/prompt_templates/default_unified.json",
+      "default_top_k": 3
+    },
+    "al": {
+      "name": "Aluminum alloys",
+      "dataset_path": "datasets/Al_Alloys/aluminum.csv",
+      "target_cols": ["UTS(MPa)"],
+      "template_path": "src/fewshot/prompt_templates/default_unified.json",
+      "default_top_k": 3
+    },
+    "hea": {
+      "name": "HEA mechanical",
+      "dataset_path": "datasets/HEA_data/hea.csv",
+      "target_cols": ["YS(MPa)", "UTS(MPa)", "El(%)"],
+      "template_path": "src/fewshot/prompt_templates/default_unified.json",
+      "default_top_k": 3
+    },
+    "hea_pitting": {
+      "name": "HEA pitting potential",
+      "dataset_path": "datasets/HEA_data/Pitting_potential_data_xiongjie.csv",
+      "target_cols": ["Ep(mV)"],
+      "template_path": "src/fewshot/prompt_templates/default_unified.json",
+      "default_top_k": 3
+    }
+  }
+}
