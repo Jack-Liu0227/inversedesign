@@ -102,6 +102,53 @@ curl -X POST http://127.0.0.1:8010/api/material-data/import-csv
 curl "http://127.0.0.1:8010/api/material-data/rows?page=1&page_size=20"
 ```
 
+## Doc 初始化与命名规则
+
+`Doc Evolution` 与 `material_doc_knowledge` 依赖文档入库。默认写入数据库：`db/material_agent_shared.db`。
+
+### 初始化方式
+
+方式 A：脚本初始化（项目根目录执行）
+
+```bash
+python -m src.init_material_doc_knowledge
+```
+
+或：
+
+```bash
+python src/init_material_doc_knowledge.py
+```
+
+方式 B：通过 UI API 初始化（需先启动 UI）
+
+```bash
+curl -X POST http://127.0.0.1:8010/api/material-data/import-docs
+```
+
+返回示例：
+
+```json
+{"ok": true, "rows_written": 128}
+```
+
+### 命名规则（doc 初始化）
+
+- Bootstrap 文档目录：`knowledge/material_bootstrap/*.md`
+- Bootstrap 文件名用于推断 `material_type`：推荐直接使用 `ti.md`、`steel.md`、`al.md`、`hea.md`、`hea_pitting.md`
+- 兼容别名：`titanium`→`ti`、`ti_alloy`→`ti`、`aluminum/aluminium`→`al`、`stainless`→`steel`、`high_entropy`→`hea`
+- 迭代文档命名模板：
+- `summary`：`{run_id}.round{round_index}.summary.md`
+- `candidates`：`{run_id}.round{round_index}.candidates.md`
+- `theory`：`{material_type}.theory_evolution.md`
+- 入库后可按 `source_kind` 区分来源：`bootstrap` / `iteration_feedback`
+
+### 初始化后验证
+
+- 页面：`/material-data`（点击 `Import Theory Docs`）
+- 页面：`/doc-evolution`
+- API：`GET /api/material-data/docs?page=1&page_size=20`
+
 ## 主要页面
 
 - `/`：Dashboard
