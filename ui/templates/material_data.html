@@ -1,0 +1,351 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head reveal viewer-head">
+  <h1>Material Data Preview</h1>
+  <p>Preview CSV-imported rows and workflow-generated new materials in one table.</p>
+</section>
+
+<article class="card reveal toolbar-card">
+  <form class="explorer-toolbar" id="material-filter-form" method="get" action="/material-data">
+    <label>
+      <span>Material Type</span>
+      <select name="material_type" onchange="submitMaterialFilters()">
+        <option value="">all</option>
+        {% for mt in material_types %}
+        <option value="{{ mt }}" {% if query.material_type == mt %}selected{% endif %}>{{ mt }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span>Source</span>
+      <select name="source" onchange="submitMaterialFilters()">
+        <option value="">all</option>
+        {% for src in sources %}
+        <option value="{{ src }}" {% if query.source == src %}selected{% endif %}>{{ src }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span>Keyword</span>
+      <input
+        type="text"
+        name="q"
+        value="{{ query.q }}"
+        placeholder="search JSON / source_name / features / reasons"
+        oninput="debouncedMaterialSubmit()"
+      >
+    </label>
+    <label>
+      <span>Created From (BJT)</span>
+      <input
+        type="datetime-local"
+        name="created_from"
+        step="60"
+        value="{{ query.created_from }}"
+        onchange="submitMaterialFilters()"
+      >
+    </label>
+    <label>
+      <span>Created To (BJT)</span>
+      <input
+        type="datetime-local"
+        name="created_to"
+        step="60"
+        value="{{ query.created_to }}"
+        onchange="submitMaterialFilters()"
+      >
+    </label>
+    <label>
+      <span>Page Size</span>
+      <input type="number" name="page_size" min="10" max="200" value="{{ query.page_size }}" onchange="submitMaterialFilters()">
+    </label>
+    <button class="viewer-apply-btn" type="submit">Apply</button>
+    <input type="hidden" name="valid_only" value="{{ 'true' if query.valid_only else 'false' }}">
+    <input type="hidden" name="page" value="{{ query.page }}">
+    <input type="hidden" name="sort_by" id="sort-by-input" value="{{ query.sort_by }}">
+    <input type="hidden" name="sort_order" id="sort-order-input" value="{{ query.sort_order }}">
+  </form>
+  <div class="meta-pills" style="margin-top: 10px;">
+    <label>
+      <input type="checkbox" id="valid-only" {% if query.valid_only %}checked{% endif %} onchange="toggleValidOnly(this.checked)">
+      valid only
+    </label>
+    <button class="ghost-btn" type="button" onclick="importCsvToDb()">Import CSV to DB</button>
+    <button class="ghost-btn" type="button" onclick="normalizeProcessingRows()">Normalize Processing</button>
+    <button class="ghost-btn" type="button" onclick="batchDeleteSelectedRows()">Delete Selected</button>
+    <span>total rows: {{ total }}</span>
+  </div>
+</article>
+
+<article class="card reveal">
+  <div class="table-wrap">
+    <table class="table explorer-table">
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="select-all-rows" onchange="toggleSelectAllRows(this.checked)"></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('id')">id{% if query.sort_by == 'id' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('material_type')">type{% if query.sort_by == 'material_type' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('source')">source{% if query.sort_by == 'source' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('source_name')">source_name{% if query.sort_by == 'source_name' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('source_row_key')">row_key{% if query.sort_by == 'source_row_key' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('is_valid')">is_valid{% if query.sort_by == 'is_valid' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('judge_score')">judge_score{% if query.sort_by == 'judge_score' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('composition')">composition{% if query.sort_by == 'composition' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('processing')">heat treatment method{% if query.sort_by == 'processing' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('features')">features{% if query.sort_by == 'features' %} ({{ query.sort_order }}){% endif %}</button></th>
+          {% for tc in target_columns %}
+          <th>
+            <button class="ghost-btn" type="button" onclick="setMaterialSort('target:{{ tc }}')">
+              {{ tc }}{% if query.sort_by == 'target:' + tc %} ({{ query.sort_order }}){% endif %}
+            </button>
+          </th>
+          {% endfor %}
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('target_values')">target_values(raw){% if query.sort_by == 'target_values' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('predicted_values')">predicted_values{% if query.sort_by == 'predicted_values' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('judge_reasons')">judge_reasons{% if query.sort_by == 'judge_reasons' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('risk_tags')">risk_tags{% if query.sort_by == 'risk_tags' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('created_at')">created_at{% if query.sort_by == 'created_at' %} ({{ query.sort_order }}){% endif %}</button></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><input type="checkbox" class="row-select-box" value="{{ r.id }}" onchange="syncSelectAllRowsState()"></td>
+          <td>{{ r.id }}</td>
+          <td>{{ r.material_type }}</td>
+          <td>{{ r.source }}</td>
+          <td>{{ r.source_name }}</td>
+          <td>{{ r.source_row_key }}</td>
+          <td>{{ r.is_valid }}</td>
+          <td>{{ "%.3f"|format(r.judge_score) }}</td>
+          <td>
+            {% if r.composition_text|length > 120 %}
+            <div class="cell-preview">
+              <span class="cell-ellipsis cell-json">{{ r.composition_text[:120] }}...</span>
+              <button type="button" class="ghost-btn" onclick='openTextModalFromCell(this, "composition")'>View</button>
+              <textarea class="hidden-fulltext" hidden>{{ r.composition_text }}</textarea>
+            </div>
+            {% else %}
+            <span class="cell-val">{{ r.composition_text }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.processing_text|length > 120 %}
+            <div class="cell-preview">
+              <span class="cell-ellipsis cell-json">{{ r.processing_text[:120] }}...</span>
+              <button type="button" class="ghost-btn" onclick='openTextModalFromCell(this, "processing")'>View</button>
+              <textarea class="hidden-fulltext" hidden>{{ r.processing_text }}</textarea>
+            </div>
+            {% else %}
+            <span class="cell-val">{{ r.processing_text }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.features_text|length > 120 %}
+            <div class="cell-preview">
+              <span class="cell-ellipsis cell-json">{{ r.features_text[:120] }}...</span>
+              <button type="button" class="ghost-btn" onclick='openTextModalFromCell(this, "features")'>View</button>
+              <textarea class="hidden-fulltext" hidden>{{ r.features_text }}</textarea>
+            </div>
+            {% else %}
+            <span class="cell-val">{{ r.features_text }}</span>
+            {% endif %}
+          </td>
+          {% for tc in target_columns %}
+          <td>{{ r.target_values_map.get(tc, '') }}</td>
+          {% endfor %}
+          <td>
+            {% if r.target_values_text|length > 120 %}
+            <div class="cell-preview">
+              <span class="cell-ellipsis cell-json">{{ r.target_values_text[:120] }}...</span>
+              <button type="button" class="ghost-btn" onclick='openTextModalFromCell(this, "target_values")'>View</button>
+              <textarea class="hidden-fulltext" hidden>{{ r.target_values_text }}</textarea>
+            </div>
+            {% else %}
+            <span class="cell-val">{{ r.target_values_text }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.predicted_values_text|length > 120 %}
+            <div class="cell-preview">
+              <span class="cell-ellipsis cell-json">{{ r.predicted_values_text[:120] }}...</span>
+              <button type="button" class="ghost-btn" onclick='openTextModalFromCell(this, "predicted_values")'>View</button>
+              <textarea class="hidden-fulltext" hidden>{{ r.predicted_values_text }}</textarea>
+            </div>
+            {% else %}
+            <span class="cell-val">{{ r.predicted_values_text }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.judge_reasons_text|length > 120 %}
+            <div class="cell-preview">
+              <span class="cell-ellipsis cell-json">{{ r.judge_reasons_text[:120] }}...</span>
+              <button type="button" class="ghost-btn" onclick='openTextModalFromCell(this, "judge_reasons")'>View</button>
+              <textarea class="hidden-fulltext" hidden>{{ r.judge_reasons_text }}</textarea>
+            </div>
+            {% else %}
+            <span class="cell-val">{{ r.judge_reasons_text }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.risk_tags_text|length > 120 %}
+            <div class="cell-preview">
+              <span class="cell-ellipsis cell-json">{{ r.risk_tags_text[:120] }}...</span>
+              <button type="button" class="ghost-btn" onclick='openTextModalFromCell(this, "risk_tags")'>View</button>
+              <textarea class="hidden-fulltext" hidden>{{ r.risk_tags_text }}</textarea>
+            </div>
+            {% else %}
+            <span class="cell-val">{{ r.risk_tags_text }}</span>
+            {% endif %}
+          </td>
+          <td>{{ r.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</article>
+
+<script>
+function toggleValidOnly(checked) {
+  const form = document.getElementById('material-filter-form');
+  if (!form) return;
+  const validInput = document.getElementById('valid-only');
+  if (validInput) validInput.checked = checked;
+  submitMaterialFilters();
+}
+
+async function importCsvToDb() {
+  const res = await fetch('/api/material-data/import-csv', { method: 'POST' });
+  if (!res.ok) {
+    alert('Import failed.');
+    return;
+  }
+  const data = await res.json();
+  alert(`Import done: files=${data.files}, rows=${data.rows_written}`);
+  window.location.reload();
+}
+
+async function normalizeProcessingRows() {
+  const res = await fetch('/api/material-data/normalize-processing', { method: 'POST' });
+  if (!res.ok) {
+    alert('Normalize processing failed.');
+    return;
+  }
+  const data = await res.json();
+  alert(`Processing normalized rows: ${data.updated}`);
+  window.location.reload();
+}
+
+function setMaterialSort(sortBy) {
+  const sortByInput = document.getElementById('sort-by-input');
+  const sortOrderInput = document.getElementById('sort-order-input');
+  if (!sortByInput || !sortOrderInput) return;
+  const currentBy = sortByInput.value || 'id';
+  const currentOrder = (sortOrderInput.value || 'desc').toLowerCase();
+  let nextOrder = 'asc';
+  if (currentBy === sortBy) {
+    nextOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+  }
+  sortByInput.value = sortBy;
+  sortOrderInput.value = nextOrder;
+  submitMaterialFilters();
+}
+
+function submitMaterialFilters() {
+  const form = document.getElementById('material-filter-form');
+  if (!form) return;
+  const validInput = document.getElementById('valid-only');
+  const hasValid = form.querySelector('input[name="valid_only"]');
+  if (!hasValid && validInput) {
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'valid_only';
+    hidden.value = validInput.checked ? 'true' : 'false';
+    form.appendChild(hidden);
+  } else if (hasValid && validInput) {
+    hasValid.value = validInput.checked ? 'true' : 'false';
+  }
+  const pageInput = form.querySelector('input[name="page"]');
+  if (!pageInput) {
+    const hiddenPage = document.createElement('input');
+    hiddenPage.type = 'hidden';
+    hiddenPage.name = 'page';
+    hiddenPage.value = '1';
+    form.appendChild(hiddenPage);
+  } else {
+    pageInput.value = '1';
+  }
+  form.submit();
+}
+
+let _materialSubmitTimer = null;
+function debouncedMaterialSubmit() {
+  if (_materialSubmitTimer) {
+    clearTimeout(_materialSubmitTimer);
+  }
+  _materialSubmitTimer = setTimeout(() => {
+    submitMaterialFilters();
+  }, 350);
+}
+
+function getSelectedRowIds() {
+  return Array.from(document.querySelectorAll('.row-select-box:checked'))
+    .map((el) => parseInt(el.value, 10))
+    .filter((v) => Number.isInteger(v) && v > 0);
+}
+
+function toggleSelectAllRows(checked) {
+  document.querySelectorAll('.row-select-box').forEach((el) => {
+    el.checked = checked;
+  });
+}
+
+function syncSelectAllRowsState() {
+  const all = Array.from(document.querySelectorAll('.row-select-box'));
+  const selected = all.filter((el) => el.checked);
+  const master = document.getElementById('select-all-rows');
+  if (!master) return;
+  if (all.length === 0) {
+    master.checked = false;
+    master.indeterminate = false;
+    return;
+  }
+  if (selected.length === 0) {
+    master.checked = false;
+    master.indeterminate = false;
+    return;
+  }
+  if (selected.length === all.length) {
+    master.checked = true;
+    master.indeterminate = false;
+    return;
+  }
+  master.checked = false;
+  master.indeterminate = true;
+}
+
+async function batchDeleteSelectedRows() {
+  const ids = getSelectedRowIds();
+  if (ids.length === 0) {
+    alert('Please select rows first.');
+    return;
+  }
+  if (!confirm(`Delete ${ids.length} selected rows?`)) {
+    return;
+  }
+  const res = await fetch('/api/material-data/batch-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) {
+    alert('Batch delete failed.');
+    return;
+  }
+  const data = await res.json();
+  alert(`Deleted rows: ${data.deleted}`);
+  submitMaterialFilters();
+}
+</script>
+{% endblock %}

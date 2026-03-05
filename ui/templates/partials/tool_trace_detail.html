@@ -1,0 +1,43 @@
+<div class="viewer-panel-head">
+  <h3>Tool Call Detail</h3>
+  {% if selected %}<span class="muted">id={{ selected.id }}</span>{% endif %}
+</div>
+{% if selected %}
+<div class="trace-detail-meta">
+  <span><strong>Step:</strong> {{ selected.step_name or 'None' }}</span>
+  <span><strong>Agent:</strong> {{ selected.agent_name or 'None' }}</span>
+  <span><strong>Tool:</strong> {{ selected.tool_name or 'None' }}</span>
+  <span><strong>Session:</strong> {{ selected.session_id or 'None' }}</span>
+  <span><strong>Run:</strong> {{ selected.run_id or 'None' }}</span>
+  <span><strong>Success:</strong> {{ selected.success }}</span>
+</div>
+<div class="trace-io-grid">
+  <section class="field-card">
+    <header>
+      <strong>Tool Input</strong>
+      <button type="button" class="ghost-btn" onclick='openTextModal({{ detail.tool_input|tojson }}, "Tool Input")'>View</button>
+    </header>
+    <pre class="scroll-box">{{ detail.tool_input }}</pre>
+  </section>
+  <section class="field-card">
+    <header>
+      <strong>Tool Output</strong>
+      <button type="button" class="ghost-btn" onclick='openTextModal({{ detail.tool_output|tojson }}, "Tool Output")'>View</button>
+    </header>
+    <pre class="scroll-box">{{ detail.tool_output }}</pre>
+  </section>
+</div>
+{% if detail.error_text %}
+<section class="field-card">
+  <header><strong>Error</strong></header>
+  <pre class="scroll-box">{{ detail.error_text }}</pre>
+</section>
+{% endif %}
+<div class="trace-help">
+  <p><strong>Note:</strong> Tool Input = <code>tool_args_json</code>, Tool Output = <code>tool_result_json</code>.</p>
+  <p>Workflow request input: <code>workflow_run_audit.input_json</code> / <code>workflow_io_logs(step_start).payload_json.input</code>.</p>
+  <p>Workflow final output: <code>workflow_run_audit.final_result_json</code>.</p>
+</div>
+{% else %}
+<div class="empty-state">Select a tool call from the middle panel.</div>
+{% endif %}

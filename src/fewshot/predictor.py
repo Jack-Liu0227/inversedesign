@@ -150,6 +150,18 @@ class FewshotPredictor:
         )
 
     @staticmethod
+    def _compact_non_empty_dict(payload: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            k: v
+            for k, v in payload.items()
+            if v is not None and (not isinstance(v, str) or v.strip())
+        }
+
+    @staticmethod
+    def _context_label(label: str) -> str:
+        return "heat treatment method" if label == "processing" else f"{label}_text"
+
+    @staticmethod
     def _format_input_composition(composition: Dict[str, Any]) -> str:
         parts = []
         for key, value in composition.items():
@@ -237,11 +249,9 @@ class FewshotPredictor:
         if value is None:
             return {}
         if isinstance(value, dict):
-            return {
-                k: v
-                for k, v in value.items()
-                if v is not None and (not isinstance(v, str) or v.strip())
-            }
+            return FewshotPredictor._compact_non_empty_dict(value)
+
+        normalized_label = FewshotPredictor._context_label(label)
         if isinstance(value, str):
             text = value.strip()
             if not text:
@@ -249,19 +259,12 @@ class FewshotPredictor:
             try:
                 parsed = json.loads(text)
                 if isinstance(parsed, dict):
-                    return {
-                        k: v
-                        for k, v in parsed.items()
-                        if v is not None and (not isinstance(v, str) or v.strip())
-                    }
+                    return FewshotPredictor._compact_non_empty_dict(parsed)
             except Exception:
                 pass
-            normalized_label = "Heat treatment method" if label == "processing" else f"{label}_text"
             return {normalized_label: FewshotPredictor._table_or_text_to_text(text)}
         if isinstance(value, list):
-            normalized_label = "Heat treatment method" if label == "processing" else f"{label}_text"
             return {normalized_label: FewshotPredictor._table_or_text_to_text(value)}
-        normalized_label = "Heat treatment method" if label == "processing" else f"{label}_text"
         return {normalized_label: str(value)}
 
     @staticmethod
@@ -311,19 +314,64 @@ class FewshotPredictor:
         for key, value in processing.items():
             normalized = str(key).strip().lower().replace("_", " ")
             if normalized in priority_keys and value is not None and str(value).strip():
-                return {"Heat treatment method": value}
+                return {"heat treatment method": value}
 
-        if "Heat treatment method" in processing and str(processing["Heat treatment method"]).strip():
-            return {"Heat treatment method": processing["Heat treatment method"]}
+        if "heat treatment method" in processing and str(processing["heat treatment method"]).strip():
+            return {"heat treatment method": processing["heat treatment method"]}
+
+        route_text = FewshotPredictor._to_ordered_processing_route(processing)
+        if route_text:
+            return {"heat treatment method": route_text}
 
         return processing
+
+    @staticmethod
+    def _to_ordered_processing_route(processing: Dict[str, Any]) -> str:
+        if not isinstance(processing, dict) or not processing:
+            return ""
+
+        def _stage_rank(raw_key: str) -> int:
+            key = str(raw_key).strip().lower().replace("_", " ")
+            if "cast" in key or "熔" in key or "铸" in key:
+                return 10
+            if "forge" in key or "thermo" in key or "rolling" in key or "轧" in key or "锻" in key:
+                return 20
+            if "solution" in key or "固溶" in key:
+                return 30
+            if "quench" in key or "淬" in key:
+                return 40
+            if "age" in key or "时效" in key:
+                return 50
+            if "temper" in key or "回火" in key:
+                return 60
+            if "anneal" in key or "退火" in key:
+                return 70
+            if "cool" in key or "冷却" in key:
+                return 80
+            return 90
+
+        ordered_items = sorted(
+            [(str(k), str(v).strip()) for k, v in processing.items() if v is not None and str(v).strip()],
+            key=lambda kv: (_stage_rank(kv[0]), kv[0].lower()),
+        )
+        if not ordered_items:
+            return ""
+
+        parts: List[str] = []
+        for key, value in ordered_items:
+            normalized_key = key.strip().lower().replace("_", " ")
+            if normalized_key in {"heat treatment method", "processing description", "process description"}:
+                parts.append(value)
+            else:
+                parts.append(value)
+        return " -> ".join(parts)
 
     @staticmethod
     def _display_key_name(key: str) -> str:
         key_str = str(key).strip()
         lowered = key_str.lower().replace("_", " ")
         if lowered in {"processing description", "process description"}:
-            return "Heat treatment method"
+            return "heat treatment method"
         if lowered == "ph":
             return "PH"
         words = [w for w in key_str.replace("_", " ").split(" ") if w]

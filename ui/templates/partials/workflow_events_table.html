@@ -1,0 +1,21 @@
+<div class="table-head">
+  <h3>Workflow Events</h3>
+  <span class="muted">total {{ total }}</span>
+</div>
+<table class="table">
+  <thead><tr><th>Created</th><th>Workflow</th><th>Step</th><th>Event</th><th>Success</th><th>Latency</th></tr></thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      <td><code>{{ item.created_at }}</code></td>
+      <td>{{ item.workflow_name }}</td>
+      <td>{{ item.step_name }}</td>
+      <td>{{ item.event_type }}</td>
+      <td>{{ item.success }}</td>
+      <td>{{ item.latency_ms }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6">No events found.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head reveal"><h1>Prediction Logs</h1><p>Filter, inspect and jump to lineage.</p></section>
+<article class="card reveal">
+  <form
+    class="filter-grid"
+    hx-get="/partials/predictions-table"
+    hx-target="#predictions-table"
+    hx-trigger="change, keyup delay:300ms"
+  >
+    <input name="material_type" placeholder="material type" value="{{ filters.material_type }}" />
+    <select name="confidence">
+      <option value="">confidence</option>
+      <option value="low" {% if filters.confidence == 'low' %}selected{% endif %}>low</option>
+      <option value="medium" {% if filters.confidence == 'medium' %}selected{% endif %}>medium</option>
+      <option value="high" {% if filters.confidence == 'high' %}selected{% endif %}>high</option>
+    </select>
+    <input name="top_k" type="number" min="1" placeholder="top_k" value="{{ filters.top_k }}" />
+    <input name="q" placeholder="search prompt / response" value="{{ filters.q }}" />
+  </form>
+</article>
+<article class="card reveal" id="predictions-table">
+  {% include 'partials/predictions_table.html' %}
+</article>
+{% endblock %}

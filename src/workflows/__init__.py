@@ -1,3 +1,3 @@
-from .material_discovery_workflow import build_material_discovery_workflow, workflow
+from .material_discovery import build_material_discovery_workflow, workflow
 
 __all__ = ["workflow", "build_material_discovery_workflow"]

@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head reveal"><h1>Classification Manager</h1><p>Tag records and control triage status.</p></section>
+<section class="two-col">
+  <article class="card reveal">
+    <h3>Create / Update Tag</h3>
+    <form id="create-tag-form" class="stack-form">
+      <input name="name" placeholder="tag name" required>
+      <input name="color" type="color" value="#0a7ea4">
+      <input name="group_name" placeholder="group" value="default">
+      <textarea name="description" placeholder="description"></textarea>
+      <button type="button" onclick="createTag()">Save Tag</button>
+    </form>
+    <h3>Tags</h3>
+    <ul class="list" id="tags-list">
+      {% for tag in tags %}
+      <li><span class="dot" style="background:{{ tag.color }}"></span>{{ tag.group_name }} / {{ tag.name }}</li>
+      {% else %}<li>No tags yet.</li>{% endfor %}
+    </ul>
+  </article>
+  <article class="card reveal">
+    <h3>Annotations</h3>
+    <table class="table">
+      <thead><tr><th>Record</th><th>Status</th><th>Priority</th><th>Tags</th><th>Note</th></tr></thead>
+      <tbody>
+      {% for row in annotations %}
+      <tr>
+        <td><code>{{ row.source_table }}#{{ row.source_pk }}</code></td>
+        <td>{{ row.status }}</td>
+        <td>{{ row.priority }}</td>
+        <td>{{ row.tags or '-' }}</td>
+        <td>{{ row.note }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No annotations yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </article>
+</section>
+{% endblock %}

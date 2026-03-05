@@ -1,0 +1,169 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head reveal viewer-head">
+  <h1>Result Viewer</h1>
+  <p>One-page inspection for all databases with quick code filtering and rich record preview.</p>
+</section>
+
+<section class="viewer-grid">
+  <article class="card reveal viewer-filter">
+    <h3>Filters</h3>
+    <form
+      class="viewer-form"
+      hx-get="/partials/viewer-results"
+      hx-target="#viewer-results"
+      hx-trigger="submit"
+      hx-include=".viewer-form"
+    >
+      <label>
+        <span>Database</span>
+        <select name="db" id="viewer-db" onchange="reloadViewerTables()">
+          {% for item in databases %}
+          <option value="{{ item.key }}" {% if item.key == selected_db %}selected{% endif %}>{{ item.key }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Table</span>
+        <select name="table" id="viewer-table" onchange="handleViewerCascade('table')">
+          {% for t in tables %}
+          <option value="{{ t }}" {% if t == selected_table %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if workflow_filterable %}
+      <label>
+        <span>Trace ID</span>
+        <input name="trace_id" id="viewer-trace-id" value="{{ filter_query.trace_id }}" placeholder="trace id" onchange="handleViewerCascade('trace')" />
+      </label>
+      <label>
+        <span>Session ID</span>
+        <input name="session_id" id="viewer-session-id" value="{{ filter_query.session_id }}" placeholder="session id" onchange="handleViewerCascade('session')" />
+      </label>
+      <label>
+        <span>Run ID</span>
+        <input name="run_id" id="viewer-run-id" value="{{ filter_query.run_id }}" placeholder="run id" onchange="handleViewerCascade('run')" />
+      </label>
+      <label>
+        <span>Step</span>
+        <select name="step_name" id="viewer-step" onchange="handleViewerCascade('step')">
+          <option value="">all</option>
+          {% for v in viewer_filters.step_names %}
+          <option value="{{ v }}" {% if filter_query.step_name == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Agent</span>
+        <select name="agent_name" id="viewer-agent" onchange="handleViewerCascade('agent')">
+          <option value="">all</option>
+          {% for v in viewer_filters.agent_names %}
+          <option value="{{ v }}" {% if filter_query.agent_name == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if workflow_filterable %}
+      <label>
+        <span>Tool</span>
+        <select name="tool_name" id="viewer-tool" onchange="handleViewerCascade('tool')">
+          <option value="">all</option>
+          {% for v in viewer_filters.tool_names %}
+          <option value="{{ v }}" {% if filter_query.tool_name == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      {% if selected_table == 'workflow_step_logs' %}
+      <label>
+        <span>Status</span>
+        <select name="status" id="viewer-status" onchange="handleViewerCascade('status')">
+          <option value="">all</option>
+          {% for v in viewer_filters.statuses %}
+          <option value="{{ v }}" {% if filter_query.status == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      {% if selected_table == 'workflow_io_logs' %}
+      <label>
+        <span>Event Type</span>
+        <select name="event_type" id="viewer-event-type" onchange="handleViewerCascade('event_type')">
+          <option value="">all</option>
+          {% for v in viewer_filters.event_types %}
+          <option value="{{ v }}" {% if filter_query.event_type == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      {% if selected_table == 'workflow_run_audit' %}
+      <label>
+        <span>Decision</span>
+        <select name="decision" id="viewer-decision" onchange="handleViewerCascade('decision')">
+          <option value="">all</option>
+          {% for v in viewer_filters.decisions %}
+          <option value="{{ v }}" {% if filter_query.decision == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Should Stop</span>
+        <select name="should_stop" id="viewer-should-stop" onchange="handleViewerCascade('should_stop')">
+          <option value="">all</option>
+          {% for v in viewer_filters.should_stop_values %}
+          <option value="{{ v }}" {% if filter_query.should_stop == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <label>
+        <span>Success</span>
+        <select name="success" id="viewer-success" onchange="handleViewerCascade('success')">
+          <option value="">all</option>
+          <option value="1" {% if filter_query.success == '1' %}selected{% endif %}>1</option>
+          <option value="0" {% if filter_query.success == '0' %}selected{% endif %}>0</option>
+        </select>
+      </label>
+      {% endif %}
+      <label>
+        <span>Code Filter</span>
+        <input name="code" value="{{ code }}" placeholder="id / trace_id / session_id / run_id / barcode" />
+      </label>
+      <label>
+        <span>Keyword</span>
+        <input name="q" value="{{ q }}" placeholder="full-text search" />
+      </label>
+      <label>
+        <span>Limit</span>
+        <input type="number" name="page_size" min="10" max="200" value="{{ page_size }}" />
+      </label>
+      <input type="hidden" name="sort_order" id="sort-order-input" value="{{ sort_order }}" />
+      <div class="sort-toggle">
+        <button
+          type="button"
+          class="ghost-btn {% if sort_order == 'desc' %}sort-active{% endif %}"
+          onclick="setSortOrder('desc')"
+        >
+          Latest First
+        </button>
+        <button
+          type="button"
+          class="ghost-btn {% if sort_order == 'asc' %}sort-active{% endif %}"
+          onclick="setSortOrder('asc')"
+        >
+          Oldest First
+        </button>
+      </div>
+      <button type="submit" class="viewer-apply-btn">Apply Filters</button>
+    </form>
+  </article>
+
+  <article class="card reveal viewer-results-panel" id="viewer-results">
+    {% include 'partials/viewer_results.html' %}
+  </article>
+
+  <article class="card reveal viewer-detail-panel" id="viewer-detail">
+    {% set key_val = detail_key %}
+    {% include 'partials/viewer_detail.html' %}
+  </article>
+</section>
+{% endblock %}

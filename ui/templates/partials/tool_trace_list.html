@@ -1,0 +1,35 @@
+<div class="viewer-panel-head">
+  <h3>Tool Calls by Step</h3>
+  <span class="muted">{{ total }} rows / sort={{ sort_order }}</span>
+</div>
+<div class="trace-group-list">
+  {% for group in grouped %}
+  <details class="trace-group" open>
+    <summary>{{ group.step_name }} ({{ group.rows|length }})</summary>
+    <div class="trace-items">
+      {% for item in group.rows %}
+      <button
+        type="button"
+        class="trace-item"
+        hx-get="/partials/tool-trace-detail?id={{ item.id }}"
+        hx-target="#tool-trace-detail"
+        hx-swap="innerHTML"
+      >
+        <div class="trace-item-top">
+          <strong>#{{ item.id }} {{ item.agent_name or 'unknown-agent' }}</strong>
+          <span class="muted">{{ item.created_at }}</span>
+        </div>
+        <div class="trace-item-mid">
+          <code>{{ item.tool_name or 'no-tool' }}</code>
+          <span class="pill {% if item.success == 1 %}high{% elif item.success == 0 %}low{% endif %}">
+            {% if item.success == 1 %}success{% elif item.success == 0 %}fail{% else %}unknown{% endif %}
+          </span>
+        </div>
+      </button>
+      {% endfor %}
+    </div>
+  </details>
+  {% else %}
+  <div class="empty-state">No tool calls match current filters.</div>
+  {% endfor %}
+</div>

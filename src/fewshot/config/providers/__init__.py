@@ -17,14 +17,8 @@ class ProviderConfig:
         # Empty model list means provider does not enforce a model whitelist.
         if not self.models:
             return True
-        if model_name in self.models:
-            return True
-        if self.litellm_provider:
-            prefix = f"{self.litellm_provider}/"
-            if model_name.startswith(prefix):
-                raw_name = model_name[len(prefix):]
-                return raw_name in self.models
-        return False
+        normalized = self._strip_provider_prefix(model_name)
+        return normalized in self.models
 
     def resolve_api_key(self, env: Mapping[str, str]) -> Optional[str]:
         for key in self.api_key_env:
@@ -49,6 +43,14 @@ class ProviderConfig:
         if model_name.startswith(prefix):
             return model_name
         return f"{prefix}{model_name}"
+
+    def _strip_provider_prefix(self, model_name: str) -> str:
+        if not self.litellm_provider:
+            return model_name
+        prefix = f"{self.litellm_provider}/"
+        if model_name.startswith(prefix):
+            return model_name[len(prefix):]
+        return model_name
 
 
 def _load_providers() -> Iterable[ProviderConfig]:

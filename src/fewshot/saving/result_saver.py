@@ -50,9 +50,7 @@ class ResultSaver:
             metrics[col] = {
                 "mae": float(mean_absolute_error(y_true_valid, y_pred_valid)),
                 "rmse": float(mean_squared_error(y_true_valid, y_pred_valid) ** 0.5),
-                "r2": float(r2_score(y_true_valid, y_pred_valid))
-                if len(y_true_valid) > 1
-                else None,
+                "r2": self._safe_r2(y_true_valid, y_pred_valid),
             }
         path = self.output_dir / "metrics.json"
         with open(path, "w", encoding="utf-8") as f:
@@ -111,18 +109,7 @@ class ResultSaver:
                 continue
 
             old = merged[idx]
-            old_better = False
-            new_better = False
-            for col in target_cols:
-                pred_col = f"{col}_predicted"
-                old_val = old.get(pred_col)
-                new_val = row.get(pred_col)
-                old_bad = pd.isna(old_val) or old_val == 0
-                new_bad = pd.isna(new_val) or new_val == 0
-                if old_bad and not new_bad:
-                    new_better = True
-                if not old_bad and new_bad:
-                    old_better = True
+            old_better, new_better = ResultSaver._compare_prediction_quality(old, row, target_cols)
 
             if new_better and not old_better:
                 merged[idx] = row
@@ -139,3 +126,29 @@ class ResultSaver:
         if isinstance(llm_response, str) and llm_response.strip().startswith("ERROR:"):
             return True
         return False
+
+    @staticmethod
+    def _compare_prediction_quality(
+        old_row: pd.Series,
+        new_row: pd.Series,
+        target_cols: List[str],
+    ) -> tuple[bool, bool]:
+        old_better = False
+        new_better = False
+        for col in target_cols:
+            pred_col = f"{col}_predicted"
+            old_val = old_row.get(pred_col)
+            new_val = new_row.get(pred_col)
+            old_bad = pd.isna(old_val) or old_val == 0
+            new_bad = pd.isna(new_val) or new_val == 0
+            if old_bad and not new_bad:
+                new_better = True
+            if not old_bad and new_bad:
+                old_better = True
+        return old_better, new_better
+
+    @staticmethod
+    def _safe_r2(y_true_valid: pd.Series, y_pred_valid: pd.Series) -> float | None:
+        if len(y_true_valid) <= 1:
+            return None
+        return float(r2_score(y_true_valid, y_pred_valid))

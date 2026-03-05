@@ -1,50 +1,99 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+_TRUE_STRINGS = {"1", "true", "yes", "on"}
+_FALSE_STRINGS = {"0", "false", "no", "off", ""}
+
 
 class WorkflowInput(BaseModel):
-    material_type: str = Field(
-        default="",
-        description="Optional dataset key such as ti/steel/al/hea/hea_pitting; empty means auto-routing by goal",
-    )
     goal: str = Field(description="Optimization goal for this run")
-    composition: Dict[str, float] = Field(default_factory=dict, description="Candidate composition")
-    processing: Dict[str, Any] = Field(default_factory=dict)
-    features: Dict[str, Any] = Field(default_factory=dict)
-    top_k: Optional[int | str] = Field(default=None, description="Top similar samples to retrieve (1-20)")
-    max_iterations: int | str = Field(default=3, description="Max loop iterations (1-10)")
+    human_loop: bool | str = Field(default=False)
+    max_iterations: int | str = Field(default=3)
+    top_k: Optional[int | str] = Field(default=None)
+
+    experiment_feedback: Optional[dict[str, Any]] = Field(default=None)
+    preference_feedback: Optional[str] = Field(default=None)
+    user_id: Optional[str] = Field(default=None)
+
+    debug: bool | str = Field(default=False)
+    debug_level: int | str = Field(default=1)
+    include_debug: bool | str = Field(default=False)
+    log_trace_id: Optional[str] = Field(default=None)
+
+    @staticmethod
+    def _coerce_min_int(value: Any, *, field_name: str, minimum: int, default: Optional[int]) -> Optional[int]:
+        if value is None:
+            return default
+        if isinstance(value, str):
+            value = value.strip()
+            if value == "":
+                return default
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field_name} must be an integer >= {minimum}") from exc
+        if parsed < minimum:
+            raise ValueError(f"{field_name} must be >= {minimum}")
+        return parsed
+
+    @field_validator("goal", mode="before")
+    @classmethod
+    def _coerce_goal(cls, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("goal must be non-empty")
+        return text
 
     @field_validator("top_k", mode="before")
     @classmethod
     def _coerce_top_k(cls, value: Any) -> Optional[int]:
-        if value is None:
-            return None
-        if isinstance(value, str):
-            value = value.strip()
-            if value == "":
-                return None
-        try:
-            parsed = int(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("top_k must be an integer between 1 and 20") from exc
-        if not 1 <= parsed <= 20:
-            raise ValueError("top_k must be between 1 and 20")
-        return parsed
+        return cls._coerce_min_int(value, field_name="top_k", minimum=1, default=None)
 
     @field_validator("max_iterations", mode="before")
     @classmethod
     def _coerce_max_iterations(cls, value: Any) -> int:
+        parsed = cls._coerce_min_int(value, field_name="max_iterations", minimum=1, default=3)
+        return 3 if parsed is None else parsed
+
+    @field_validator("experiment_feedback", mode="before")
+    @classmethod
+    def _coerce_experiment_feedback(cls, value: Any) -> Any:
+        if value is None:
+            return None
         if isinstance(value, str):
-            value = value.strip()
-            if value == "":
-                return 3
-        try:
-            parsed = int(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("max_iterations must be an integer between 1 and 10") from exc
-        if not 1 <= parsed <= 10:
-            raise ValueError("max_iterations must be between 1 and 10")
-        return parsed
+            text = value.strip()
+            if not text:
+                return None
+        return value
+
+    @field_validator("preference_feedback", "user_id", "log_trace_id", mode="before")
+    @classmethod
+    def _coerce_optional_text(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        text = value.strip() if isinstance(value, str) else str(value).strip()
+        return text or None
+
+    @field_validator("debug", "include_debug", "human_loop", mode="before")
+    @classmethod
+    def _coerce_bool_switch(cls, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in _TRUE_STRINGS:
+                return True
+            if lowered in _FALSE_STRINGS:
+                return False
+        if isinstance(value, (int, float)):
+            return bool(value)
+        raise ValueError("boolean switch must be a boolean-like value")
+
+    @field_validator("debug_level", mode="before")
+    @classmethod
+    def _coerce_debug_level(cls, value: Any) -> int:
+        parsed = cls._coerce_min_int(value, field_name="debug_level", minimum=1, default=1)
+        return 1 if parsed is None else parsed

@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head reveal"><h1>Overview</h1><p>Cross-database monitoring and triage.</p></section>
+<section class="kpi-grid">
+  <article class="card reveal"><h3>Total Predictions</h3><p class="kpi">{{ stats.kpis.total_predictions }}</p></article>
+  <article class="card reveal"><h3>Total Workflow Events</h3><p class="kpi">{{ stats.kpis.total_events }}</p></article>
+  <article class="card reveal"><h3>Predictions (24h)</h3><p class="kpi">{{ stats.kpis.predictions_24h }}</p></article>
+  <article class="card reveal"><h3>Errors</h3><p class="kpi danger">{{ stats.kpis.errors }}</p></article>
+  <article class="card reveal"><h3>Low Confidence</h3><p class="kpi warn">{{ stats.kpis.low_confidence }}</p></article>
+</section>
+<section class="two-col">
+  <article class="card reveal">
+    <h3>Event Trend</h3>
+    <table class="table compact"><thead><tr><th>Bucket</th><th>Count</th></tr></thead><tbody>
+      {% for row in stats.trend %}<tr><td>{{ row[0] }}</td><td>{{ row[1] }}</td></tr>{% endfor %}
+    </tbody></table>
+  </article>
+  <article class="card reveal">
+    <h3>Recent Anomalies</h3>
+    <ul class="list">
+      {% for item in stats.anomalies %}
+      <li><code>{{ item.created_at }}</code> {{ item.step_name }} - {{ item.error_text }}</li>
+      {% else %}<li>No anomaly detected.</li>{% endfor %}
+    </ul>
+    <h3>Pending Annotations</h3>
+    <ul class="list">
+      {% for item in stats.pending_annotations %}
+      <li><code>{{ item.source_table }}#{{ item.source_pk }}</code> {{ item.status }} / {{ item.priority }}</li>
+      {% else %}<li>No pending records.</li>{% endfor %}
+    </ul>
+  </article>
+</section>
+{% endblock %}

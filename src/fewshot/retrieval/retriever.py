@@ -27,6 +27,13 @@ class SampleRetriever:
     _embedder_lock = threading.Lock()
     _embedder_cache: dict[str, object] = {}
 
+    @staticmethod
+    def _env_bool(name: str, default: bool = False) -> bool:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+
     def __init__(self, embedding_model: str = "all-MiniLM-L6-v2", top_k: int = 3) -> None:
         self.embedding_model = embedding_model
         self.top_k = top_k
@@ -35,12 +42,7 @@ class SampleRetriever:
         self._train_vectors = None
         self._train_texts: List[str] = []
         backend = os.getenv("RETRIEVER_BACKEND", "auto").strip().lower()
-        strict_semantic = os.getenv("RETRIEVER_STRICT_SEMANTIC", "0").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
+        strict_semantic = self._env_bool("RETRIEVER_STRICT_SEMANTIC", False)
 
         if backend == "tfidf":
             if _HAS_TFIDF:
@@ -96,15 +98,16 @@ class SampleRetriever:
         if self._train_vectors is None:
             raise RuntimeError("Retriever not fitted")
 
-        if self._embedder is not None:
-            query_vec = np.asarray(self._embedder.encode([query_text], show_progress_bar=False))
-            sims = cosine_similarity(query_vec, self._train_vectors)[0]
-        else:
-            query_vec = self._vectorizer.transform([query_text])
-            sims = cosine_similarity(query_vec, self._train_vectors)[0]
+        query_vec = self._encode_query(query_text)
+        sims = cosine_similarity(query_vec, self._train_vectors)[0]
 
         ranked = np.argsort(sims)[::-1][:top_k]
         return [(int(idx), float(sims[idx])) for idx in ranked]
+
+    def _encode_query(self, query_text: str):
+        if self._embedder is not None:
+            return np.asarray(self._embedder.encode([query_text], show_progress_bar=False))
+        return self._vectorizer.transform([query_text])
 
     @staticmethod
     def _resolve_model_path(model_name: str) -> Path | None:

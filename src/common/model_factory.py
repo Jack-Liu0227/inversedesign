@@ -20,6 +20,10 @@ def _pick_first(value: str) -> str:
     return value.split(",")[0].strip()
 
 
+def _env_str(name: str, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
+
 def _read_json_file(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return {}
@@ -33,33 +37,33 @@ def _read_json_file(path: Path) -> Dict[str, Any]:
 def _resolve_provider_from_env() -> Dict[str, Dict[str, Any]]:
     return {
         "ollama": {
-            "api_key": _pick_first(os.getenv("OLLAMA_API_KEY", "ollama")),
-            "base_url": os.getenv("OLLAMA_BASE_URLS", "http://localhost:11434/v1").strip(),
-            "default_model": os.getenv("OLLAMA_MODEL", "gpt-oss:20b").strip(),
+            "api_key": _pick_first(_env_str("OLLAMA_API_KEY", "ollama")),
+            "base_url": _env_str("OLLAMA_BASE_URLS", "http://localhost:11434/v1"),
+            "default_model": _env_str("OLLAMA_MODEL", "gpt-oss:20b"),
             "requires_api_key": False,
         },
         "echoflow": {
-            "api_key": _pick_first(os.getenv("ECHOFLOW_API_KEY", "")),
-            "base_url": os.getenv("ECHOFLOW_BASE_URLS", "").strip(),
-            "default_model": os.getenv("ECHOFLOW_MODEL", "").strip(),
+            "api_key": _pick_first(_env_str("ECHOFLOW_API_KEY")),
+            "base_url": _env_str("ECHOFLOW_BASE_URLS"),
+            "default_model": _env_str("ECHOFLOW_MODEL"),
             "requires_api_key": True,
         },
         "ricardo": {
-            "api_key": _pick_first(os.getenv("RICARDO_API_KEY", "")),
-            "base_url": os.getenv("RICARDO_BASE_URLS", "").strip(),
-            "default_model": os.getenv("RICARDO_API_MODEL", "").strip(),
+            "api_key": _pick_first(_env_str("RICARDO_API_KEY")),
+            "base_url": _env_str("RICARDO_BASE_URLS"),
+            "default_model": _env_str("RICARDO_API_MODEL"),
             "requires_api_key": True,
         },
         "openrouter": {
-            "api_key": _pick_first(os.getenv("OPENROUTER_API_KEY", "")),
-            "base_url": os.getenv("OPENROUTER_BASE_URLS", "https://openrouter.ai/api/v1").strip(),
-            "default_model": os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-20b:free").strip(),
+            "api_key": _pick_first(_env_str("OPENROUTER_API_KEY")),
+            "base_url": _env_str("OPENROUTER_BASE_URLS", "https://openrouter.ai/api/v1"),
+            "default_model": _env_str("OPENROUTER_MODEL", "openai/gpt-oss-20b:free"),
             "requires_api_key": True,
         },
         "deepseek": {
-            "api_key": _pick_first(os.getenv("DEEPSEEK_API_KEY", "")),
-            "base_url": os.getenv("DEEPSEEK_BASE_URLS", "https://api.deepseek.com/v1").strip(),
-            "default_model": os.getenv("DEEPSEEK_MODEL", "").strip(),
+            "api_key": _pick_first(_env_str("DEEPSEEK_API_KEY")),
+            "base_url": _env_str("DEEPSEEK_BASE_URLS", "https://api.deepseek.com/v1"),
+            "default_model": _env_str("DEEPSEEK_MODEL"),
             "requires_api_key": True,
         },
     }
@@ -78,11 +82,9 @@ def _resolve_provider_from_file(
     api_key_env = str(spec.get("api_key_env", "")).strip()
     base_url_env = str(spec.get("base_url_env", "")).strip()
     default_model_env = str(spec.get("default_model_env", "")).strip()
-    api_key = _pick_first(os.getenv(api_key_env, "")) if api_key_env else str(spec.get("api_key", "")).strip()
-    base_url = os.getenv(base_url_env, "").strip() if base_url_env else str(spec.get("base_url", "")).strip()
-    default_model = (
-        os.getenv(default_model_env, "").strip() if default_model_env else str(spec.get("default_model", "")).strip()
-    )
+    api_key = _pick_first(_env_str(api_key_env)) if api_key_env else str(spec.get("api_key", "")).strip()
+    base_url = _env_str(base_url_env) if base_url_env else str(spec.get("base_url", "")).strip()
+    default_model = _env_str(default_model_env) if default_model_env else str(spec.get("default_model", "")).strip()
     requires_api_key = bool(spec.get("requires_api_key", True))
     return {
         "api_key": api_key,
@@ -114,20 +116,20 @@ def build_model(log_tag: str = "model_factory") -> OpenAIChat:
         if not isinstance(provider_map, dict) or not provider_map:
             raise ValueError("providers.json must contain a non-empty 'providers' object")
         provider_config = _resolve_provider_from_file(provider_name, provider_map)
-        model_id = os.getenv(
+        model_id = _env_str(
             str(binding.get("model_id_env", "MODEL_ID")).strip(),
             "",
-        ).strip()
+        )
         model_id = model_id or str(binding.get("model_id", "")).strip()
         resolved_model_id = model_id or provider_config["default_model"]
     else:
-        provider_name = os.getenv("MODEL_PROVIDER", "ricardo").strip().lower()
+        provider_name = _env_str("MODEL_PROVIDER", "ricardo").lower()
         providers = _resolve_provider_from_env()
         if provider_name not in providers:
             valid_providers = ", ".join(sorted(providers.keys()))
             raise ValueError(f"Unsupported MODEL_PROVIDER='{provider_name}'. Use one of: {valid_providers}")
         provider_config = providers[provider_name]
-        model_id = os.getenv("MODEL_ID", "").strip()
+        model_id = _env_str("MODEL_ID")
         resolved_model_id = model_id or provider_config["default_model"]
 
     if provider_config.get("requires_api_key", True) and not provider_config["api_key"]:

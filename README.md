@@ -56,6 +56,110 @@ pip install sentence-transformers
 pip install -e ./agno/libs/agno
 ```
 
+## 8. Workflow Update (2026-03-03)
+
+### 8.1 Dependency requirement
+
+- Agno workflow user-input fields require `agno>=2.5.4`.
+- Recommended version for this project: `agno==2.5.6`.
+
+```bash
+pip install -U agno==2.5.6 fastapi
+```
+
+Or install from the pinned dependency file:
+
+```bash
+pip install -r requirements.txt
+```
+
+### 8.2 Optional experiment feedback
+
+`Human Feedback` is now optional. You can:
+
+- provide `measured_values_json` (lab results), or
+- leave it empty and continue AI-only proposal rounds.
+
+Default behavior:
+
+- `round_index < max_rounds` (default `max_rounds=3`): `decision=continue`, `should_stop=false`
+- `round_index >= max_rounds` and no lab feedback: `decision=await_user_choice`, `should_stop=true`
+
+### 8.3 Structured inputs for new rounds
+
+Request payload now supports:
+
+- `experiment_feedback`: structured lab feedback
+- `preference_feedback`: human preference text for next-round proposals
+- `include_debug`: include full intermediate `step_outputs` in response debug block
+- `round_index`: current round (1-5)
+- `max_rounds`: maximum AI-only rounds (1-5)
+
+Example:
+
+```json
+{
+  "material_type": "ti",
+  "goal": "Design high strength and good ductility alloy",
+  "composition": {"Ti": 88.0, "Al": 6.0, "V": 4.0, "Mo": 2.0},
+  "processing": {"Processing_Description": "Solution treated and aged"},
+  "top_k": 3,
+  "round_index": 1,
+  "max_rounds": 3,
+  "include_debug": false,
+  "preference_feedback": "Increase UTS while keeping El close to current level",
+  "experiment_feedback": {
+    "measured_values": {},
+    "notes": ""
+  }
+}
+```
+
+`experiment_feedback` is also compatible with empty string (`""`) and will be treated as `null`.
+
+## 9. High-Observability Logging
+
+This project now supports dual-channel observability:
+
+- Console logs for real-time debugging
+- SQLite audit logs for searchable workflow traces
+
+### 9.1 Environment variables
+
+```bash
+APP_LOG_LEVEL=INFO
+APP_LOG_SQLITE_ENABLED=true
+APP_LOG_RETENTION_DAYS=30
+APP_LOG_AUTO_CLEANUP=true
+APP_FORCE_TRACING=false
+```
+
+SQLite audit DB file:
+
+- `db/workflow_audit.db`
+- table: `workflow_io_logs`
+- table: `workflow_run_audit` (final run-level audit snapshot)
+
+### 9.2 Request-level deep debug
+
+You can enable verbose workflow tracing per request:
+
+```json
+{
+  "goal": "Design high strength and good ductility alloy",
+  "material_type": "ti",
+  "debug": true,
+  "debug_level": 2,
+  "log_trace_id": "manual-trace-001"
+}
+```
+
+When `debug=true`:
+
+- More detailed step input/output payloads are logged to SQLite.
+- Console shows richer debug/error details.
+- Final response includes `debug_trace_ref` for trace correlation.
+
 ## 3. 模型与 Provider 配置
 
 ### 3.1 Provider 配置

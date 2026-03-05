@@ -33,21 +33,55 @@ def _load_json(path: Path) -> Dict:
 
 
 def _dataset_config() -> Dict:
-    path = _skills_dir() / "dataset_registry.json"
-    if not path.exists():
-        raise FileNotFoundError(f"Missing dataset registry config: {path}")
-    return _load_json(path)
+    return _required_skill_json("dataset_registry.json")
 
 
 def _routing_config() -> Dict:
-    path = _skills_dir() / "routing_rules.json"
+    return _required_skill_json("routing_rules.json")
+
+
+def _required_skill_json(filename: str) -> Dict:
+    path = _skills_dir() / filename
     if not path.exists():
-        raise FileNotFoundError(f"Missing routing rules config: {path}")
+        raise FileNotFoundError(f"Missing skill config: {path}")
     return _load_json(path)
 
 
 def _normalize_token(value: str) -> str:
     return "".join(ch for ch in (value or "").strip().lower() if ch.isalnum())
+
+
+def _goal_semantic_route_with_reason(goal: str, registry: Dict[str, DatasetSpec]) -> Tuple[str, str]:
+    text = (goal or "").strip().lower()
+    if not text:
+        return "", ""
+
+    def _has(*keywords: str) -> bool:
+        return any(kw and kw in text for kw in keywords)
+
+    # Corrosion-specific intent should remain highest priority.
+    if "hea_pitting" in registry and _has("点蚀", "腐蚀", "pitting", "corrosion", "chloride"):
+        return "hea_pitting", "goal_keyword_hea_pitting"
+
+    # Material-family keywords must outrank generic performance intent.
+    if "ti" in registry and _has("钛", "钛合金", "titanium", "ti alloy", "ti alloys"):
+        return "ti", "goal_keyword_ti"
+    if "steel" in registry and _has("钢", "不锈钢", "stainless", "steel"):
+        return "steel", "goal_keyword_steel"
+    if "al" in registry and _has("铝", "铝合金", "aluminum", "aluminium"):
+        return "al", "goal_keyword_al"
+
+    # HEA only when explicit HEA intent exists.
+    if "hea" in registry and _has(
+        "高熵", "高熵合金", "多主元", "多主元合金", "high entropy", "high-entropy", "hea"
+    ):
+        return "hea", "goal_keyword_hea"
+    return "", ""
+
+
+def _goal_semantic_route(goal: str, registry: Dict[str, DatasetSpec]) -> str:
+    resolved, _ = _goal_semantic_route_with_reason(goal, registry)
+    return resolved
 
 
 def _route_alias_lookup(registry: Dict[str, DatasetSpec], routes: Dict) -> Dict[str, str]:
@@ -111,12 +145,13 @@ def route_material_type(goal: str = "", material_type: str = "") -> str:
 
     explicit = material_type.strip().lower()
     alias_map = _route_alias_lookup(registry, routes)
-    if explicit:
-        normalized = _normalize_token(explicit)
-        if explicit in registry:
-            return explicit
-        if normalized in alias_map:
-            return alias_map[normalized]
+    explicit_resolved = _resolve_explicit_material_type(explicit, registry, alias_map)
+    if explicit_resolved:
+        return explicit_resolved
+
+    semantic_resolved, _ = _goal_semantic_route_with_reason(goal, registry)
+    if semantic_resolved:
+        return semantic_resolved
 
     goal_lower = (goal or "").lower()
     for key, rules in routes.items():
@@ -129,6 +164,18 @@ def route_material_type(goal: str = "", material_type: str = "") -> str:
     if default_key not in registry:
         raise ValueError(f"default_material_type '{default_key}' is not defined in datasets")
     return default_key
+
+
+def _resolve_explicit_material_type(
+    explicit: str,
+    registry: Dict[str, DatasetSpec],
+    alias_map: Dict[str, str],
+) -> str:
+    if not explicit:
+        return ""
+    if explicit in registry:
+        return explicit
+    return alias_map.get(_normalize_token(explicit), "")
 
 
 def resolve_material_type_input(goal: str = "", material_type: str = "") -> Tuple[str, str]:
@@ -146,10 +193,14 @@ def resolve_material_type_input(goal: str = "", material_type: str = "") -> Tupl
         if normalized in alias_map:
             return alias_map[normalized], "alias_match"
 
+    semantic_resolved, semantic_reason = _goal_semantic_route_with_reason(goal, registry)
+    if semantic_resolved:
+        return semantic_resolved, semantic_reason
+
     resolved = route_material_type(goal=goal, material_type=material_type)
     if explicit_raw:
-        return resolved, "goal_or_default_fallback"
-    return resolved, "goal_or_default"
+        return resolved, "default_fallback_from_explicit"
+    return resolved, "default_fallback"
 
 
 def supported_material_type_hint() -> str:

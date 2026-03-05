@@ -1,0 +1,1 @@
+﻿resolve_material_type不要通过字符解析的形式，完全通过llm来判断，这样吧，不用工具，直接让src\agents\material_review_agent.py接收goal或者material_type,然后输出Json格式解析为需要的结果不就好了

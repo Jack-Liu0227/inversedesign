@@ -10,7 +10,7 @@
   "analysis_protocol": "**Required Analysis Protocol**:\n\n1. **Reference-Driven Baseline Establishment**:\n   - **Classification**: First, classify the general family of all materials involved (references and target).\n   - **Primary Baseline Selection**: From the provided `Reference Samples`, identify the single sample that is the **most analogous** to the `Target Material`. This sample and its `Known True Values` will serve as your **primary baseline**. Justify your choice.\n   - **Sanity Check (Optional but Recommended)**: Use your general knowledge of standard materials as a secondary check.\n\n2. **Plausibility Assessment**:\n   - Assess the expected range for each target property based on your selected **primary baseline sample**.\n   - Consider the relationships between properties when applicable (e.g., strength-ductility trade-offs).\n\n3. **Interpolative Correction & Justification**:\n   - Formulate corrected values for each property.\n   - Your reasoning must be an **interpolation or extrapolation** from the primary baseline. Quantify how the **differences in characteristics** between the target and the baseline sample translate into specific property adjustments.\n   - Use fundamental materials principles to support *why* these differences lead to your calculated adjustments.",
   "predictions_json_template": "",
   "column_name_mapping": {
-    "Processing_Description": "Heat treatment method"
+    "heat treatment method": "heat treatment method"
   },
   "apply_mapping_to_target": true,
   "guided_mode": {

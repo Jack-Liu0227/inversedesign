@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head reveal">
+  <h1>Database Explorer</h1>
+  <p>Full table browsing across all databases with filter and row-level classification.</p>
+</section>
+
+<article class="card reveal toolbar-card">
+  <form class="explorer-toolbar" method="get" action="/explorer">
+    <label>
+      <span>Database</span>
+      <select name="db" onchange="this.form.submit()">
+        {% for item in databases %}
+        <option value="{{ item.key }}" {% if item.key == selected_db %}selected{% endif %}>{{ item.key }} ({{ item.file }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span>Table</span>
+      <select name="table" onchange="this.form.submit()">
+        {% for t in tables %}
+        <option value="{{ t }}" {% if t == selected_table %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span>Keyword</span>
+      <input type="text" name="q" placeholder="Search all columns" value="{{ q }}" />
+    </label>
+    <label>
+      <span>Page Size</span>
+      <input type="number" name="page_size" min="10" max="200" value="{{ page_size }}" />
+    </label>
+    <button type="submit">Apply Filters</button>
+  </form>
+</article>
+
+<article class="card reveal">
+  {% include 'partials/explorer_table.html' %}
+</article>
+{% endblock %}

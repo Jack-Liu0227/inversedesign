@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or 'Material UI' }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/main.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script defer src="/static/js/app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">Material DB UI</div>
+      <nav>
+        <a class="nav-link {% if active == 'dashboard' %}active{% endif %}" href="/">Dashboard</a>
+        <a class="nav-link {% if active == 'viewer' %}active{% endif %}" href="/viewer">Viewer</a>
+        <a class="nav-link {% if active == 'material_data' %}active{% endif %}" href="/material-data">Data Preview</a>
+        <a class="nav-link {% if active == 'explorer' %}active{% endif %}" href="/explorer">Explorer</a>
+        <a class="nav-link {% if active == 'tool_trace' %}active{% endif %}" href="/tool-trace">Tool Trace</a>
+        <a class="nav-link {% if active == 'recycle' %}active{% endif %}" href="/recycle-bin">Recycle Bin</a>
+      </nav>
+      {% block sidebar_extra %}{% endblock %}
+    </aside>
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <div id="text-modal" class="text-modal" onclick="closeTextModal()">
+    <div class="text-modal-card" onclick="event.stopPropagation()">
+      <header class="text-modal-head">
+        <strong id="text-modal-title">Cell Value</strong>
+        <div class="text-modal-actions">
+          <button type="button" class="ghost-btn" onclick="copyModalText()">Copy</button>
+          <button type="button" class="ghost-btn" onclick="closeTextModal()">Close</button>
+        </div>
+      </header>
+      <pre id="text-modal-body"></pre>
+    </div>
+  </div>
+</body>
+</html>

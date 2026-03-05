@@ -1,0 +1,23 @@
+<div class="viewer-panel-head">
+  <h3>Detail</h3>
+  {% if key_val %}<span class="muted">Record {{ key_val }}</span>{% endif %}
+</div>
+<div class="viewer-detail-body">
+  {% for section in detail_sections %}
+  <section class="field-section">
+    <h4>{{ section.title }}</h4>
+    {% for field in section.fields %}
+    <section class="field-card">
+      <header>
+        <strong>{{ field.key }}</strong>
+        {% if field.is_structured %}<span class="pill">JSON</span>{% endif %}
+        <button type="button" class="ghost-btn" onclick='openTextModal({{ field.full|tojson }}, {{ field.key|tojson }})'>View</button>
+      </header>
+      <pre class="{% if field.is_scroll_field %}scroll-box{% endif %}">{{ field.full }}</pre>
+    </section>
+    {% endfor %}
+  </section>
+  {% else %}
+  <div class="empty-state">Select a record from the middle panel.</div>
+  {% endfor %}
+</div>

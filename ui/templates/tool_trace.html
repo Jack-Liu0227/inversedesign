@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head reveal viewer-head">
+  <h1>Tool Trace</h1>
+  <p>Analyze tool calls by step. Tool Input = tool_args_json, Tool Output = tool_result_json.</p>
+</section>
+
+<section class="trace-grid">
+  <article class="card reveal trace-filter">
+    <h3>Filters</h3>
+    <form class="trace-form" hx-get="/partials/tool-trace-list" hx-target="#tool-trace-list" hx-trigger="submit" hx-include=".trace-form">
+      <label>
+        <span>Session/Trace ID</span>
+        <input name="session_id" value="{{ query.session_id }}" placeholder="session_id (trace use same value)" />
+      </label>
+      <label>
+        <span>Step</span>
+        <select id="trace-step" name="step_name" onchange="handleToolTraceCascade('step')">
+          <option value="">all</option>
+          {% for v in filters.step_names %}
+          <option value="{{ v }}" {% if query.step_name == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Agent</span>
+        <select id="trace-agent" name="agent_name" onchange="handleToolTraceCascade('agent')">
+          <option value="">all</option>
+          {% for v in filters.agent_names %}
+          <option value="{{ v }}" {% if query.agent_name == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Tool</span>
+        <select id="trace-tool" name="tool_name" onchange="handleToolTraceCascade('tool')">
+          <option value="">all</option>
+          {% for v in filters.tool_names %}
+          <option value="{{ v }}" {% if query.tool_name == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Success</span>
+        <select name="success">
+          <option value="" {% if query.success == '' %}selected{% endif %}>all</option>
+          <option value="1" {% if query.success == '1' %}selected{% endif %}>success</option>
+          <option value="0" {% if query.success == '0' %}selected{% endif %}>fail</option>
+        </select>
+      </label>
+      <input id="trace-sort-order" type="hidden" name="sort_order" value="{{ query.sort_order }}" />
+      <div class="sort-toggle">
+        <button type="button" class="ghost-btn {% if query.sort_order == 'desc' %}sort-active{% endif %}" onclick="setToolTraceSort('desc')">Latest First</button>
+        <button type="button" class="ghost-btn {% if query.sort_order == 'asc' %}sort-active{% endif %}" onclick="setToolTraceSort('asc')">Oldest First</button>
+      </div>
+      <button type="submit" class="viewer-apply-btn">Apply Filters</button>
+    </form>
+  </article>
+
+  <article class="card reveal trace-list-panel" id="tool-trace-list">
+    {% include 'partials/tool_trace_list.html' %}
+  </article>
+
+  <article class="card reveal trace-detail-panel" id="tool-trace-detail">
+    {% include 'partials/tool_trace_detail.html' %}
+  </article>
+</section>
+{% endblock %}

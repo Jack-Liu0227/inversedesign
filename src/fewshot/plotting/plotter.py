@@ -12,6 +12,20 @@ from .plot_style import PLOT_STYLE
 matplotlib.use("Agg")
 
 
+def _axis_limits(x: pd.Series, y: pd.Series, padding_ratio: float) -> Tuple[float, float]:
+    min_val = min(x.min(), y.min())
+    max_val = max(x.max(), y.max())
+    padding = (max_val - min_val) * padding_ratio
+    return min_val - padding, max_val + padding
+
+
+def _format_metrics_text(metrics: Dict[str, float | None]) -> str:
+    lines = [f"MAE: {metrics['mae']:.4f}", f"RMSE: {metrics['rmse']:.4f}"]
+    if metrics["r2"] is not None:
+        lines.append(f"R2: {metrics['r2']:.4f}")
+    return "\n".join(lines)
+
+
 def plot_diagonal(
     predictions_path: str | Path,
     output_dir: str | Path,
@@ -46,17 +60,8 @@ def plot_diagonal(
 
         x = subset[true_col]
         y = subset[pred_col]
-        errors = y - x
-        mae = float(errors.abs().mean())
-        rmse = float((errors**2).mean() ** 0.5)
-        ss_res = float((errors**2).sum())
-        ss_tot = float(((x - x.mean()) ** 2).sum())
-        r2 = None if ss_tot == 0 else 1 - (ss_res / ss_tot)
-        min_val = min(x.min(), y.min())
-        max_val = max(x.max(), y.max())
-        padding = (max_val - min_val) * float(style["limits"]["padding_ratio"])
-        lower = min_val - padding
-        upper = max_val + padding
+        metrics = _compute_metrics(x, y)
+        lower, upper = _axis_limits(x, y, float(style["limits"]["padding_ratio"]))
 
         fig, ax = plt.subplots(
             figsize=tuple(fmt["figure"]["size"]),
@@ -96,14 +101,10 @@ def plot_diagonal(
                 linestyle=fmt["grid"]["linestyle"],
                 linewidth=float(fmt["grid"]["linewidth"]),
             )
-        metrics_lines = [f"MAE: {mae:.4f}", f"RMSE: {rmse:.4f}"]
-        if r2 is not None:
-            metrics_lines.append(f"R2: {r2:.4f}")
-        metrics_text = "\n".join(metrics_lines)
         ax.text(
             0.02,
             0.98,
-            metrics_text,
+            _format_metrics_text(metrics),
             transform=ax.transAxes,
             ha="left",
             va="top",
@@ -323,11 +324,7 @@ def plot_comparison(
         x = subset[true_col]
         y = subset[pred_col]
         metrics = _compute_metrics(x, y)
-        min_val = min(x.min(), y.min())
-        max_val = max(x.max(), y.max())
-        padding = (max_val - min_val) * float(style["limits"]["padding_ratio"])
-        lower = min_val - padding
-        upper = max_val + padding
+        lower, upper = _axis_limits(x, y, float(style["limits"]["padding_ratio"]))
         ax.plot(
             [lower, upper],
             [lower, upper],

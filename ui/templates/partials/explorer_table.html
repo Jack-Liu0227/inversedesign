@@ -1,0 +1,54 @@
+<div class="table-head">
+  <h3>{{ db }} / {{ table }}</h3>
+  <div class="meta-pills">
+    <span class="pill">Rows {{ total }}</span>
+    <span class="pill">Columns {{ columns|length }}</span>
+    <span class="pill">Page {{ page }}</span>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table class="table explorer-table">
+    <thead>
+      <tr>
+        {% for col in columns %}<th>{{ col }}</th>{% endfor %}
+        <th class="classify-col">classify</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      {% set pk = row.get(record_key) %}
+      <tr>
+        {% for col in columns %}
+        {% set val = row.get(col) %}
+        <td>
+        {% if val is string and val|length > 96 %}
+            <div class="cell-preview">
+              <span class="cell-ellipsis">{{ val[:96] }}...</span>
+              <button
+                type="button"
+                class="ghost-btn"
+                onclick='openTextModalFromCell(this, {{ col|tojson }})'
+              >
+                View
+              </button>
+              <textarea class="hidden-fulltext" hidden>{{ val }}</textarea>
+            </div>
+          {% else %}
+            <span class="cell-val">{{ val }}</span>
+          {% endif %}
+        </td>
+        {% endfor %}
+        <td class="classify-col">
+          <div class="stack-form">
+            <input id="tags-{{ loop.index }}" placeholder="tag1,tag2" />
+            <button type="button" onclick="assignTags('{{ db }}','{{ table }}','{{ pk }}','tags-{{ loop.index }}')">Tag</button>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="{{ columns|length + 1 }}">No rows found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

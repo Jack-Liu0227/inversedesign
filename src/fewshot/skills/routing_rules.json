@@ -2,24 +2,24 @@
   "default_material_type": "ti",
   "routes": {
     "ti": {
-      "aliases": ["ti", "titanium", "titanium alloy"],
-      "keywords": ["titanium", "high temperature", "aerospace", "high strength"]
+      "aliases": ["ti", "titanium", "titanium alloy", "钛", "钛合金"],
+      "keywords": ["titanium", "high temperature", "aerospace", "high strength", "钛", "钛合金"]
     },
     "steel": {
-      "aliases": ["steel", "stainless steel"],
-      "keywords": ["steel", "stainless", "martensitic", "ferritic"]
+      "aliases": ["steel", "stainless steel", "钢", "钢材", "不锈钢"],
+      "keywords": ["steel", "stainless", "martensitic", "ferritic", "钢", "钢材", "不锈钢", "马氏体", "铁素体"]
     },
     "al": {
-      "aliases": ["al", "aluminum", "aluminium"],
-      "keywords": ["aluminum", "aluminium", "lightweight"]
+      "aliases": ["al", "aluminum", "aluminium", "铝", "铝合金"],
+      "keywords": ["aluminum", "aluminium", "lightweight", "铝", "铝合金", "轻量化"]
     },
     "hea": {
-      "aliases": ["hea", "high entropy alloy", "high-entropy alloy"],
-      "keywords": ["high entropy", "hea", "multi principal"]
+      "aliases": ["hea", "high entropy alloy", "high-entropy alloy", "高熵", "高熵合金", "多主元合金"],
+      "keywords": ["high entropy", "hea", "multi principal", "高熵", "高熵合金", "多主元", "多主元合金"]
     },
     "hea_pitting": {
-      "aliases": ["hea_pitting", "pitting", "corrosion", "ep"],
-      "keywords": ["pitting", "corrosion", "ep", "cl concentration", "chloride"]
+      "aliases": ["hea_pitting", "pitting", "corrosion", "ep", "点蚀", "腐蚀"],
+      "keywords": ["pitting", "corrosion", "ep", "cl concentration", "chloride", "点蚀", "腐蚀", "氯离子"]
     }
   }
 }

@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head reveal">
+  <h1>Recycle Bin</h1>
+  <p>Deleted records snapshot. Select rows and restore to original tables.</p>
+</section>
+
+<article class="card reveal">
+  <div class="viewer-panel-head">
+    <h3>Deleted Records</h3>
+    <button type="button" class="ghost-btn" onclick="restoreSelected()">Restore Selected</button>
+  </div>
+  <div class="recycle-page-list">
+    {% for item in recycle_items %}
+    <label class="recycle-item">
+      <input type="checkbox" class="recycle-check" value="{{ item.id }}" />
+      <span>{{ item.source_db }} / {{ item.source_table }} / {{ item.key_col }}={{ item.key_val }}</span>
+      <small>{{ item.deleted_at }}</small>
+    </label>
+    {% else %}
+    <div class="empty-state">Recycle bin is empty.</div>
+    {% endfor %}
+  </div>
+</article>
+{% endblock %}

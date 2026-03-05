@@ -12,7 +12,7 @@ DEFAULT_DB_PATH = PREDICTION_PROMPT_LOG_DB
 
 
 def _enabled() -> bool:
-    value = os.getenv("PREDICT_PROMPT_LOG_ENABLED", "true").strip().lower()
+    value = os.getenv("PREDICT_PROMPT_LOG_ENABLED", "false").strip().lower()
     return value in {"1", "true", "yes", "on"}
 
 
@@ -21,6 +21,14 @@ def _db_path() -> Path:
     if raw:
         return Path(raw)
     return DEFAULT_DB_PATH
+
+
+def _connect() -> sqlite3.Connection:
+    path = _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    _ensure_schema(conn)
+    return conn
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
@@ -61,8 +69,6 @@ def log_prediction_prompt(
     if not _enabled():
         return None
 
-    path = _db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = (
         datetime.now(timezone.utc).isoformat(),
         material_type_input,
@@ -77,9 +83,8 @@ def log_prediction_prompt(
         confidence,
     )
 
-    conn = sqlite3.connect(path)
+    conn = _connect()
     try:
-        _ensure_schema(conn)
         cursor = conn.execute(
             """
             INSERT INTO prediction_prompt_logs (

@@ -12,12 +12,7 @@ class ResultParser:
         self.target_cols = target_cols
 
     def parse(self, response_text: str) -> Dict[str, Optional[float]]:
-        candidates = self._extract_json_candidates(response_text)
-        for candidate in candidates:
-            try:
-                data = json.loads(candidate)
-            except json.JSONDecodeError:
-                continue
+        for data in self._iter_json_objects(response_text):
             predictions = self._extract_predictions(data)
             if predictions:
                 return predictions
@@ -27,12 +22,7 @@ class ResultParser:
         return {col: None for col in self.target_cols}
 
     def extract_confidence(self, response_text: str) -> Optional[str]:
-        candidates = self._extract_json_candidates(response_text)
-        for candidate in candidates:
-            try:
-                data = json.loads(candidate)
-            except json.JSONDecodeError:
-                continue
+        for data in self._iter_json_objects(response_text):
             confidence = data.get("confidence")
             if isinstance(confidence, str):
                 value = confidence.lower().strip()
@@ -41,6 +31,15 @@ class ResultParser:
         match = re.search(r"\bconfidence\b\s*[:=]\s*['\"]?(high|medium|low)", response_text, re.I)
         if match:
             return match.group(1).lower()
+        return None
+
+    def extract_reasoning(self, response_text: str) -> Optional[str]:
+        for data in self._iter_json_objects(response_text):
+            reasoning = data.get("reasoning")
+            if isinstance(reasoning, str):
+                text = reasoning.strip()
+                if text:
+                    return text
         return None
 
     def _extract_predictions(self, data: dict) -> Dict[str, Optional[float]]:
@@ -69,6 +68,16 @@ class ResultParser:
             elif isinstance(value, (int, float, str)):
                 result[col] = self._coerce_float(value)
         return result
+
+    @staticmethod
+    def _iter_json_objects(text: str):
+        for candidate in ResultParser._extract_json_candidates(text):
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                yield parsed
 
     @staticmethod
     def _extract_json_candidates(text: str) -> List[str]:

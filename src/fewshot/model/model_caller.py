@@ -17,6 +17,9 @@ try:
 except Exception:
     _HAS_LITELLM = False
 
+_RATE_LIMIT_TOKENS = ("429", "rate limit", "quota")
+_RETRYABLE_ERROR_TOKENS = ("InternalServerError", "Internal server error", "500", "http_error")
+
 
 class ModelCaller:
     def __init__(
@@ -77,6 +80,7 @@ class ModelCaller:
             self._ensure_circuit_open()
             ordered_keys = self._rotate_keys(api_keys) if api_keys else [""]
             for key_idx, api_key in enumerate(ordered_keys, start=1):
+                key_progress = f"{key_idx}/{len(ordered_keys)}"
                 for base_url in base_urls:
                     for attempt in range(self.max_retries):
                         try:
@@ -85,7 +89,7 @@ class ModelCaller:
                                 "LLM call start model=%s base_url=%s key=%s attempt=%s",
                                 self.model_name,
                                 base_url,
-                                f"{key_idx}/{len(ordered_keys)}",
+                                key_progress,
                                 attempt + 1,
                             )
                             if is_ollama_model:
@@ -106,7 +110,7 @@ class ModelCaller:
                                 "LLM call success model=%s base_url=%s key=%s",
                                 self.model_name,
                                 base_url,
-                                f"{key_idx}/{len(ordered_keys)}",
+                                key_progress,
                             )
                             self._reset_breaker()
                             return content
@@ -121,13 +125,14 @@ class ModelCaller:
                                 "error_type=%s error=%s error_repr=%r",
                                 self.model_name,
                                 base_url,
-                                f"{key_idx}/{len(ordered_keys)}",
+                                key_progress,
                                 attempt + 1,
                                 type(exc).__name__,
                                 str(exc),
                                 exc,
                             )
-                            if is_retryable and attempt < self.max_retries - 1:
+                            has_more_attempts = attempt < self.max_retries - 1
+                            if is_retryable and has_more_attempts:
                                 wait_time = self._retry_wait_seconds(
                                     attempt, is_rate_limit, suggested_delay
                                 )
@@ -145,18 +150,21 @@ class ModelCaller:
         ) from last_error
 
     @staticmethod
+    def _split_csv(value: Optional[str]) -> list[str]:
+        if not value:
+            return []
+        return [item.strip() for item in value.split(",") if item.strip()]
+
+    @staticmethod
     def _expand_base_urls(base_url: Optional[str]) -> list[Optional[str]]:
-        if not base_url:
+        urls = ModelCaller._split_csv(base_url)
+        if not urls:
             return [None]
-        if "," not in base_url:
-            return [base_url.strip()]
-        return [url.strip() for url in base_url.split(",") if url.strip()]
+        return urls
 
     @staticmethod
     def _expand_api_keys(api_key: str) -> list[str]:
-        if "," not in api_key:
-            return [api_key.strip()]
-        return [key.strip() for key in api_key.split(",") if key.strip()]
+        return ModelCaller._split_csv(api_key)
 
     def _rotate_keys(self, api_keys: list[str]) -> list[str]:
         if not api_keys:
@@ -199,9 +207,8 @@ class ModelCaller:
         error_lower = error_str.lower()
         is_rate_limit = (
             "RateLimitError" in error_type
-            or "429" in error_str
-            or "rate limit" in error_lower
-            or "quota" in error_lower
+            or any(token in error_str for token in _RATE_LIMIT_TOKENS if token.isdigit())
+            or any(token in error_lower for token in _RATE_LIMIT_TOKENS if not token.isdigit())
         )
         suggested_delay = None
         if is_rate_limit:
@@ -219,10 +226,7 @@ class ModelCaller:
         is_retryable = (
             is_rate_limit
             or is_connection_error
-            or "InternalServerError" in error_str
-            or "Internal server error" in error_str
-            or "500" in error_str
-            or "http_error" in error_str
+            or any(token in error_str for token in _RETRYABLE_ERROR_TOKENS)
         )
         return is_retryable, is_rate_limit, suggested_delay
 

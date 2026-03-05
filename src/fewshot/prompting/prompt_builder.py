@@ -84,6 +84,16 @@ class PromptBuilder:
             lines.append("")
         return "\n".join(lines).strip()
 
+    @staticmethod
+    def _append_section(parts: List[str], title: str, content: str) -> None:
+        if content:
+            parts.append(f"### {title}\n{content}\n")
+
+    @staticmethod
+    def _append_plain(parts: List[str], content: str) -> None:
+        if content.strip():
+            parts.append(content)
+
     def build_prompt(
         self,
         target_properties: List[str],
@@ -101,26 +111,21 @@ class PromptBuilder:
         }
 
         parts: List[str] = []
-        if self.template.get("system_role"):
-            parts.append(f"### System Role\n{self.template['system_role']}\n")
+        self._append_section(parts, "System Role", str(self.template.get("system_role", "")))
 
         task_desc = self._safe_format(self.template.get("task_description", ""), template_vars)
-        if task_desc:
-            parts.append(f"### Task\n{task_desc}\n")
+        self._append_section(parts, "Task", task_desc)
 
         ref_format = self._safe_format(self.template.get("reference_format", ""), template_vars)
-        if ref_format.strip():
-            parts.append(ref_format)
+        self._append_plain(parts, ref_format)
 
         input_format = self._safe_format(self.template.get("input_format", ""), template_vars)
-        if input_format.strip():
-            parts.append(input_format)
+        self._append_plain(parts, input_format)
 
         if self.template.get("analysis_protocol"):
             parts.append(self.template["analysis_protocol"])
 
         output_format = self._safe_format(self.template.get("output_format", ""), template_vars)
-        if output_format.strip():
-            parts.append(output_format)
+        self._append_plain(parts, output_format)
 
         return "\n\n".join(parts).strip()

@@ -40,12 +40,15 @@ class PipelineConfig:
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
 
-    def to_json(self, path: str) -> None:
-        payload = {
+    def as_dict(self) -> dict:
+        return {
             "data": asdict(self.data),
             "retrieval": asdict(self.retrieval),
             "llm": asdict(self.llm),
         }
+
+    def to_json(self, path: str) -> None:
+        payload = self.as_dict()
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -75,13 +78,12 @@ def create_default_config(
     max_retries: int = 2,
     allow_mock_on_failure: bool = False,
 ) -> PipelineConfig:
-    if target_cols is None:
-        target_cols = ["UTS(MPa)", "El(%)"]
+    resolved_target_cols = target_cols or ["UTS(MPa)", "El(%)"]
     data = DataConfig(
         input_file=input_file,
         output_dir=output_dir,
         template_path=template_path,
-        target_cols=target_cols,
+        target_cols=resolved_target_cols,
         sample_size=sample_size,
     )
     retrieval = RetrievalConfig(top_k=top_k)

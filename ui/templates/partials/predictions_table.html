@@ -1,0 +1,28 @@
+<div class="table-head">
+  <h3>Prediction Records</h3>
+  <span class="muted">total {{ total }}</span>
+</div>
+<table class="table">
+  <thead>
+    <tr>
+      <th>ID</th><th>Created</th><th>Material</th><th>Confidence</th><th>Top-K</th><th>Predicted</th><th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      <td>{{ item.id }}</td>
+      <td><code>{{ item.created_at }}</code></td>
+      <td>{{ item.material_type_resolved or item.material_type_input }}</td>
+      <td><span class="pill {{ item.confidence }}">{{ item.confidence }}</span></td>
+      <td>{{ item.top_k }}</td>
+      <td><pre class="mini-json">{{ item.predicted_values | tojson(indent=2) }}</pre></td>
+      <td>
+        <a href="/lineage?q={{ item.id }}">Trace</a>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7">No data found.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

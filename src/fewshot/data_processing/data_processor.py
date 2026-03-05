@@ -52,18 +52,7 @@ class DataProcessor:
             feature_cols = provided_features
         else:
             excluded = set(element_cols) | set(target_cols)
-            processing_cols = []
-            for c in cols:
-                if c in excluded:
-                    continue
-                col_lower = c.lower()
-                is_text_series = str(df[c].dtype) in {"object", "string"}
-                looks_like_process_text = any(
-                    token in col_lower
-                    for token in ("processing", "process", "description", "method", "route", "treatment")
-                )
-                if is_text_series or looks_like_process_text:
-                    processing_cols.append(c)
+            processing_cols = [c for c in cols if c not in excluded and self._looks_like_processing_col(df, c)]
             feature_cols = []
 
         return ColumnInfo(
@@ -72,6 +61,16 @@ class DataProcessor:
             feature_cols=feature_cols,
             target_cols=target_cols,
         )
+
+    @staticmethod
+    def _looks_like_processing_col(df: pd.DataFrame, col: str) -> bool:
+        col_lower = col.lower()
+        is_text_series = str(df[col].dtype) in {"object", "string"}
+        looks_like_process_text = any(
+            token in col_lower
+            for token in ("processing", "process", "description", "method", "route", "treatment")
+        )
+        return is_text_series or looks_like_process_text
 
     @staticmethod
     def format_composition(row: pd.Series, element_cols: List[str]) -> str:
