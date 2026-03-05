@@ -7,6 +7,7 @@ import json
 
 from ..config import PipelineConfig, create_default_config
 from ..predictor import FewshotPredictor
+from src.common import build_model
 
 
 class FewshotPipeline:
@@ -33,13 +34,14 @@ class FewshotPipeline:
         output_dir = Path(self.config.data.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Always resolve runtime model from unified project routing config.
+        runtime_model = build_model("workflow/fewshot")
         predictor = FewshotPredictor(
-            model_name=self.config.llm.model_name,
+            model_name=runtime_model.id,
             temperature=self.config.llm.temperature,
-            api_key=self.config.llm.api_key,
-            base_url=self.config.llm.base_url,
+            api_key=runtime_model.api_key,
+            base_url=runtime_model.base_url,
             embedding_model=self.config.retrieval.embedding_model,
-            allow_mock_on_failure=self.config.llm.allow_mock_on_failure,
         )
         result = predictor.predict(
             material_type=material_type,
@@ -60,6 +62,11 @@ class FewshotPipeline:
                 "data": asdict(self.config.data),
                 "retrieval": asdict(self.config.retrieval),
                 "llm": asdict(self.config.llm),
+                "llm_resolved": {
+                    "source": "build_model(workflow/fewshot)",
+                    "model_name": runtime_model.id,
+                    "base_url": runtime_model.base_url,
+                },
             },
         }
         output_path = output_dir / "single_prediction.json"

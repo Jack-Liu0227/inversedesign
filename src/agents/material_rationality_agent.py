@@ -18,6 +18,8 @@ material_rationality_agent = Agent(
         "Use recommended_action keep/revise/drop.",
         "Set is_valid=false for unrealistic chemistry, impossible process constraints, or self-contradictory predictions.",
         "cleaned_candidate may be null; if provided, keep same schema as recommender candidate.",
+        "If cleaned_candidate.processing is present, it must contain exactly one key: 'heat treatment method'.",
+        "Do not output thermo_mechanical, microstructure_target, or other processing sub-keys.",
     ],
     markdown=True,
 )

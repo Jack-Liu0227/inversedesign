@@ -1,4 +1,4 @@
-ID,Al(wt%),Cr(wt%),Fe(wt%),Mo(wt%),Nb(wt%),Sn(wt%),Ti(wt%),V(wt%),Zr(wt%),Solution Temperature(℃),Solution Time(h),Aging Temperature(℃),Aging Time(h),Thermo-Mechanical Treatment Temperature(℃),Deformation(%),Processing_Description,UTS(MPa),El(%)
+﻿ID,Al(wt%),Cr(wt%),Fe(wt%),Mo(wt%),Nb(wt%),Sn(wt%),Ti(wt%),V(wt%),Zr(wt%),Solution Temperature(℃),Solution Time(h),Aging Temperature(℃),Aging Time(h),Thermo-Mechanical Treatment Temperature(℃),Deformation(%),heat treatment method,UTS(MPa),El(%)
 1,0.0,0.0,0.0,3.16,6.2700000000000005,3.1300000000000003,81.17,0.0,6.2700000000000005,0,0.0,0,0.0,20,0.0,No processing,715.0,7.6
 2,0.0,0.0,0.0,2.96,11.8,2.95,76.38000000000001,0.0,5.91,0,0.0,0,0.0,20,0.0,No processing,519.0,6.4
 3,0.0,0.0,0.0,2.96,8.85,2.93,79.36,0.0,5.9,0,0.0,0,0.0,20,0.0,No processing,701.0,13.6

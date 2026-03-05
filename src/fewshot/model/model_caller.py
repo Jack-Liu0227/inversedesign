@@ -29,14 +29,12 @@ class ModelCaller:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         max_retries: int = 2,
-        allow_mock_on_failure: bool = False,
     ) -> None:
         self.model_name = model_name
         self.temperature = temperature
         self.api_key = api_key
         self.base_url = base_url
         self.max_retries = max_retries
-        self.allow_mock_on_failure = allow_mock_on_failure
         self.max_concurrent = int(os.getenv("LLM_MAX_CONCURRENT", "0"))
         self.min_interval = float(os.getenv("LLM_MIN_INTERVAL", "0"))
         self.failure_threshold = int(os.getenv("LLM_FAILURE_THRESHOLD", "0"))
@@ -54,20 +52,14 @@ class ModelCaller:
         self._consecutive_failures = 0
         self._circuit_open_until = 0.0
 
-    def call(self, prompt: str, fallback_predictions: Dict[str, float]) -> str:
+    def call(self, prompt: str) -> str:
         is_ollama_model = self.model_name.startswith("ollama/")
         if not is_ollama_model and (not _HAS_LITELLM or not self.api_key):
-            if self.allow_mock_on_failure:
-                return self._mock_response(fallback_predictions)
             raise RuntimeError("LLM call unavailable: missing litellm or API key.")
 
         api_keys = self._expand_api_keys(self.api_key)
         base_urls = self._expand_base_urls(self.base_url)
         if is_ollama_model and (not base_urls or base_urls == [None]):
-            if self.allow_mock_on_failure:
-                return self._mock_response(
-                    fallback_predictions, error=RuntimeError("Missing Ollama base_url.")
-                )
             raise RuntimeError(
                 "LLM call unavailable: missing Ollama base_url. "
                 "Set OLLAMA_BASE_URLS or LLM_BASE_URLS."
@@ -143,8 +135,6 @@ class ModelCaller:
             if self._semaphore:
                 self._semaphore.release()
 
-        if self.allow_mock_on_failure:
-            return self._mock_response(fallback_predictions, error=last_error)
         raise RuntimeError(
             f"LLM call failed after retries: {self._format_error(last_error)}"
         ) from last_error
@@ -323,17 +313,3 @@ class ModelCaller:
             self._consecutive_failures = 0
             self._circuit_open_until = 0.0
 
-    @staticmethod
-    def _mock_response(
-        predictions: Dict[str, float], error: Optional[Exception] = None
-    ) -> str:
-        payload = {
-            "predictions": {
-                key: {"value": float(value), "unit": ""} for key, value in predictions.items()
-            },
-            "confidence": "low",
-            "reasoning": "Mock response used because LLM call was unavailable.",
-        }
-        if error:
-            payload["reasoning"] = f"Mock response used because LLM call failed: {error}"
-        return json.dumps(payload, indent=2, ensure_ascii=True)

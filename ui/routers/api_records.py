@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from pydantic import BaseModel
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from starlette.concurrency import run_in_threadpool
 
-from ui.db.repositories.explorer_repo import explorer_repo
+from ui.db.repositories.explorer_repo import ExplorerRepository
+from ui.dependencies import get_explorer_repository
 
 
-router = APIRouter(prefix="/api/records", tags=["records"])
+router = APIRouter(prefix="/records", tags=["records"])
 
 
 class BatchDeleteRequest(BaseModel):
@@ -20,14 +22,26 @@ class RestoreRequest(BaseModel):
     recycle_ids: list[int]
 
 
+class PurgeRequest(BaseModel):
+    recycle_ids: list[int] = []
+
+
 @router.get("/recycle-bin")
-def recycle_bin(limit: int = 200):
-    return {"items": explorer_repo.list_recycle_bin(limit=max(1, min(limit, 500)))}
+async def recycle_bin(
+    limit: int = 200,
+    explorer_repository: ExplorerRepository = Depends(get_explorer_repository),
+):
+    items = await run_in_threadpool(explorer_repository.list_recycle_bin, limit=max(1, min(limit, 500)))
+    return {"items": items}
 
 
 @router.post("/batch-delete")
-def batch_delete(req: BatchDeleteRequest):
-    return explorer_repo.delete_rows_to_recycle_bin(
+async def batch_delete(
+    req: BatchDeleteRequest,
+    explorer_repository: ExplorerRepository = Depends(get_explorer_repository),
+):
+    return await run_in_threadpool(
+        explorer_repository.delete_rows_to_recycle_bin,
         db_key=req.source_db,
         table=req.source_table,
         key_col=req.key_col,
@@ -36,5 +50,31 @@ def batch_delete(req: BatchDeleteRequest):
 
 
 @router.post("/restore")
-def restore(req: RestoreRequest):
-    return explorer_repo.restore_from_recycle_bin(recycle_ids=req.recycle_ids)
+async def restore(
+    req: RestoreRequest,
+    explorer_repository: ExplorerRepository = Depends(get_explorer_repository),
+):
+    return await run_in_threadpool(explorer_repository.restore_from_recycle_bin, recycle_ids=req.recycle_ids)
+
+
+@router.post("/purge")
+async def purge(
+    req: PurgeRequest,
+    explorer_repository: ExplorerRepository = Depends(get_explorer_repository),
+):
+    return await run_in_threadpool(
+        explorer_repository.purge_recycle_bin,
+        recycle_ids=req.recycle_ids,
+        all_active=False,
+    )
+
+
+@router.post("/purge-all")
+async def purge_all(
+    explorer_repository: ExplorerRepository = Depends(get_explorer_repository),
+):
+    return await run_in_threadpool(
+        explorer_repository.purge_recycle_bin,
+        recycle_ids=[],
+        all_active=True,
+    )

@@ -33,14 +33,12 @@ class FewshotPredictor:
         base_url: Optional[str] = None,
         temperature: float = 0.0,
         embedding_model: str = "EmbeddingModel/all-MiniLM-L6-v2",
-        allow_mock_on_failure: bool = True,
     ) -> None:
         self.model_name = model_name
         self.api_key = api_key
         self.base_url = base_url
         self.temperature = temperature
         self.embedding_model = embedding_model
-        self.allow_mock_on_failure = allow_mock_on_failure
 
     def predict(
         self,
@@ -98,14 +96,6 @@ class FewshotPredictor:
         prompt_builder = PromptBuilder(str(spec.template_path))
         reference_samples: List[Dict[str, Any]] = []
         similar_samples: List[Dict[str, Any]] = []
-        fallback_values: Dict[str, float] = {}
-        for col in columns.target_cols:
-            vals = [
-                train_targets[idx].get(col)
-                for idx, _ in retrieved
-                if pd.notna(train_targets[idx].get(col))
-            ]
-            fallback_values[col] = float(sum(vals) / len(vals)) if vals else 0.0
 
         for idx, score in retrieved:
             sample_text = train_texts[idx]
@@ -133,9 +123,8 @@ class FewshotPredictor:
             temperature=self.temperature,
             api_key=self.api_key,
             base_url=self.base_url,
-            allow_mock_on_failure=self.allow_mock_on_failure,
         )
-        llm_response = caller.call(prompt, fallback_predictions=fallback_values)
+        llm_response = caller.call(prompt)
         parser = ResultParser(columns.target_cols)
         predicted = parser.parse(llm_response)
         confidence = parser.extract_confidence(llm_response) or "low"

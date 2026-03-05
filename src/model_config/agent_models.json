@@ -1,31 +1,31 @@
 {
   "default": {
-    "provider": "ricardo",
+    "provider": "deepseek",
     "model_id_env": "MODEL_ID"
   },
   "agents": {
     "material_router/agent": {
-      "provider": "ricardo",
+      "provider": "",
       "model_id": ""
     },
     "material_predictor/agent": {
-      "provider": "ricardo",
+      "provider": "",
       "model_id": ""
     },
     "material_recommender/agent": {
-      "provider": "ricardo",
+      "provider": "",
       "model_id": ""
     },
     "material_predictor/fewshot": {
-      "provider": "ricardo",
+      "provider": "",
       "model_id": ""
     },
     "material_review/agent": {
-      "provider": "ricardo",
+      "provider": "",
       "model_id": ""
     },
     "workflow/fewshot": {
-      "provider": "ricardo",
+      "provider": "",
       "model_id": ""
     }
   }

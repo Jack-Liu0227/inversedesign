@@ -7,7 +7,14 @@ from typing import Any
 from agno.workflow.types import StepInput, StepOutput
 
 from src.agents.material_rationality_agent import material_rationality_agent
-from src.common import DatasetMaterialRow, MaterialSampleRow, insert_dataset_rows, insert_sample_rows, next_round_index
+from src.common import (
+    DatasetMaterialRow,
+    MaterialSampleRow,
+    insert_dataset_rows,
+    insert_sample_rows,
+    next_round_index,
+    upsert_iteration_doc_context,
+)
 from src.schemas import AgentRationalityOutput
 
 from .agent_runtime import run_agent_for_json
@@ -54,6 +61,11 @@ def judge_with_agent(step_input: StepInput) -> StepOutput:
 
     material_type = str(routed.get("resolved_material_type", "")).strip().lower()
     candidates = [c for c in list_or_empty(predictor.get("recommended_candidates", [])) if isinstance(c, dict)]
+    normalized_candidates = []
+    for candidate in candidates:
+        normalized_candidate = dict(candidate)
+        normalized_candidate["processing"] = normalize_processing(candidate.get("processing", {}))
+        normalized_candidates.append(normalized_candidate)
     predictions = [p for p in list_or_empty(predictor.get("candidate_predictions", [])) if isinstance(p, dict)]
 
     prompt = (
@@ -61,9 +73,10 @@ def judge_with_agent(step_input: StepInput) -> StepOutput:
         "Return ONLY JSON with key evaluations.\n"
         "Each evaluation item must include: candidate_index, is_valid, validity_score, reasons, risk_tags, "
         "recommended_action, cleaned_candidate.\n"
+        "If cleaned_candidate.processing is present, it must contain exactly one key: 'heat treatment method'.\n"
         f"goal={request.goal}\n"
         f"material_type={material_type}\n"
-        f"candidates={json.dumps(candidates, ensure_ascii=False)}\n"
+        f"candidates={json.dumps(normalized_candidates, ensure_ascii=False)}\n"
         f"candidate_predictions={json.dumps(predictions, ensure_ascii=False)}"
     )
     raw = run_agent_for_json(
@@ -136,6 +149,7 @@ def persist_candidates(step_input: StepInput) -> StepOutput:
                 judge_score=float(judge_item.get("validity_score", 0.0) or 0.0),
                 judge_reasons=[str(x) for x in list_or_empty(judge_item.get("reasons", [])) if str(x).strip()],
                 risk_tags=[str(x) for x in list_or_empty(judge_item.get("risk_tags", [])) if str(x).strip()],
+                recommended_action=str(judge_item.get("recommended_action", "drop") or "drop").strip().lower(),
                 judge_model="material_rationality_agent",
             )
         )
@@ -162,6 +176,16 @@ def persist_candidates(step_input: StepInput) -> StepOutput:
 
     inserted = insert_sample_rows(rows)
     inserted_dataset = insert_dataset_rows(dataset_rows)
+    inserted_doc_chunks = upsert_iteration_doc_context(
+        material_type=material_type,
+        workflow_run_id=str(workflow_run_id),
+        session_id=str(session_id),
+        round_index=int(round_index),
+        goal=request.goal,
+        candidates=candidates,
+        evaluations=evaluations,
+        limit=12,
+    )
     reason_counter: Counter[str] = Counter()
     valid_count = 0
     for item in evaluations:
@@ -177,6 +201,7 @@ def persist_candidates(step_input: StepInput) -> StepOutput:
             "round_index": round_index,
             "inserted_count": inserted,
             "inserted_dataset_count": inserted_dataset,
+            "inserted_doc_chunk_count": inserted_doc_chunks,
             "total_candidates": len(candidates),
             "valid_count": valid_count,
             "invalid_count": max(0, len(candidates) - valid_count),

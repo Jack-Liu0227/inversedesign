@@ -93,6 +93,7 @@ def resolve_material_type(
     _ = normalized_material_type
     _ = normalized_goal
     return AgentRouterOutput(
+        goal=normalized_goal,
         resolved_material_type=resolved,
         resolution_reason=reason,
         resolved_properties=resolved_properties,
@@ -106,12 +107,17 @@ material_router_agent = Agent(
     db=SqliteDb(db_file=str(MATERIAL_ROUTER_AGENT_DB), id=MATERIAL_AGENT_SHARED_DB_ID),
     instructions=[
         "You normalize user material descriptions into supported dataset keys.",
-        "Always call resolve_material_type tool first with goal and material_type/material_type_input.",
+        "Return ONLY valid JSON with exactly these keys: goal, resolved_material_type, resolution_reason, resolved_properties, target_thresholds.",
         "Supported dataset keys are: ti, steel, al, hea, hea_pitting.",
         "When material_type_input is empty, infer from goal semantics and domain terms.",
         "For high-entropy alloy intent, prefer hea; for pitting/corrosion HEA intent, prefer hea_pitting.",
+        "target_thresholds must come only from explicit parseable constraints in goal; never invent targets.",
+        "If no parseable thresholds exist, return target_thresholds as an empty list and explain in resolution_reason.",
         "When input is ambiguous, explain why the selected key is chosen.",
+        "Pay special attention to mechanical and electrochemical property constraints such as UTS (ultimate tensile strength), YS (yield strength), Ep (pitting potential in mV), elongation, hardness, corrosion resistance, etc.",
+        "Always include all identified property constraints in resolved_properties to facilitate subsequent material recommendation.",
+        "Extract property names accurately from goal text, preserving technical terms and units when present.",
     ],
-    tools=[resolve_material_type],
+    tools=[],
     markdown=True,
 )

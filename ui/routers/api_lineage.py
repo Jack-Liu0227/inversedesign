@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from starlette.concurrency import run_in_threadpool
 
+from ui.dependencies import get_lineage_service
 from ui.schemas.models import LineageResponse
-from ui.services.lineage_service import lineage_service
+from ui.services.lineage_service import LineageService
 
 
-router = APIRouter(prefix="/api/lineage", tags=["lineage"])
+router = APIRouter(prefix="/lineage", tags=["lineage"])
 
 
 @router.get("/{trace_or_session_id}", response_model=LineageResponse)
-def get_lineage(trace_or_session_id: str, include_payload: bool = Query(default=True)):
-    data = lineage_service.build_lineage(trace_or_session_id)
+async def get_lineage(
+    trace_or_session_id: str,
+    include_payload: bool = Query(default=True),
+    service: LineageService = Depends(get_lineage_service),
+):
+    data = await run_in_threadpool(service.build_lineage, trace_or_session_id)
     if not include_payload:
         for item in data["timeline"]:
             item["data"].pop("payload", None)

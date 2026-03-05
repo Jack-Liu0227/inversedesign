@@ -7,7 +7,7 @@ from typing import Any, Dict
 
 from agno.workflow.types import StepInput
 
-from src.common import log_agent_execution, log_agent_tool_call
+from src.common import log_agent_execution, log_agent_tool_call, log_prompt_llm_response
 
 _AGENT_SOURCE_BY_NAME: Dict[str, str] = {
     "router": "src/agents/material_router_agent.py",
@@ -207,6 +207,7 @@ def run_agent_for_json(
     step_input: StepInput,
     agent_name: str,
     prompt: str,
+    include_meta: bool = False,
 ) -> Dict[str, Any]:
     session_id = _agent_session_id(step_input)
     workflow_session = getattr(step_input, "workflow_session", None)
@@ -239,6 +240,21 @@ def run_agent_for_json(
             error_text=None,
             latency_ms=latency_ms,
             tool_call_count=tool_call_count,
+        )
+        log_prompt_llm_response(
+            workflow_name=workflow_name,
+            trace_id=trace_id if isinstance(trace_id, str) else None,
+            session_id=session_id,
+            run_id=run_id if isinstance(run_id, str) else None,
+            step_name=step_name if isinstance(step_name, str) else None,
+            agent_name=agent_name,
+            model_id=None,
+            prompt_text=prompt,
+            llm_response_text=raw_content,
+            response_json=parsed if isinstance(parsed, dict) else {},
+            success=True,
+            error_text=None,
+            latency_ms=latency_ms,
         )
 
         if isinstance(tool_executions, list) and tool_executions:
@@ -294,6 +310,12 @@ def run_agent_for_json(
                 success=True,
                 error_text=None,
             )
+        if include_meta:
+            return {
+                "parsed": parsed,
+                "raw_content": raw_content,
+                "step_name": step_name,
+            }
         return parsed
     except Exception as exc:
         latency_ms = int((time.perf_counter() - start) * 1000)
@@ -312,6 +334,21 @@ def run_agent_for_json(
             error_text=str(exc),
             latency_ms=latency_ms,
             tool_call_count=0,
+        )
+        log_prompt_llm_response(
+            workflow_name=workflow_name,
+            trace_id=trace_id if isinstance(trace_id, str) else None,
+            session_id=session_id,
+            run_id=run_id if isinstance(run_id, str) else None,
+            step_name=step_name if isinstance(step_name, str) else None,
+            agent_name=agent_name,
+            model_id=None,
+            prompt_text=prompt,
+            llm_response_text="",
+            response_json={},
+            success=False,
+            error_text=str(exc),
+            latency_ms=latency_ms,
         )
         log_agent_tool_call(
             workflow_name=workflow_name,

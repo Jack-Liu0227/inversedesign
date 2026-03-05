@@ -28,9 +28,37 @@
       <input type="text" name="q" placeholder="Search all columns" value="{{ q }}" />
     </label>
     <label>
+      <span>Code Filter</span>
+      <input type="text" name="code" placeholder="id / trace_id / session_id / run_id / barcode" value="{{ code }}" />
+    </label>
+    <label>
+      <span>Created From</span>
+      <input type="datetime-local" step="60" name="created_from" value="{{ created_from }}" />
+    </label>
+    <label>
+      <span>Created To</span>
+      <input type="datetime-local" step="60" name="created_to" value="{{ created_to }}" />
+    </label>
+    {% for col in explorer_filter_columns %}
+    <label>
+      <span>{{ col|replace('_', ' ')|title }}</span>
+      <select name="{{ col }}">
+        <option value="">all</option>
+        {% for v in explorer_filter_options.get(col, []) %}
+        <option value="{{ v }}" {% if explorer_filters.get(col) == v %}selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endfor %}
+    <label>
       <span>Page Size</span>
       <input type="number" name="page_size" min="10" max="200" value="{{ page_size }}" />
     </label>
+    <input type="hidden" name="sort_order" id="explorer-sort-order" value="{{ sort_order }}" />
+    <div class="sort-toggle">
+      <button type="button" class="ghost-btn {% if sort_order == 'desc' %}sort-active{% endif %}" onclick="setExplorerSortOrder('desc')">Latest First</button>
+      <button type="button" class="ghost-btn {% if sort_order == 'asc' %}sort-active{% endif %}" onclick="setExplorerSortOrder('asc')">Oldest First</button>
+    </div>
     <button type="submit">Apply Filters</button>
   </form>
 </article>

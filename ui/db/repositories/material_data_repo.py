@@ -103,7 +103,7 @@ class MaterialDataRepository:
             base_sql = f"""
                 SELECT id, material_type, source, source_name, source_row_key,
                        composition_json, processing_json, features_json, target_values_json, predicted_values_json,
-                       is_valid, judge_score, judge_reasons_json, risk_tags_json, workflow_run_id, session_id, created_at
+                       iteration, is_valid, judge_score, judge_reasons_json, risk_tags_json, workflow_run_id, session_id, created_at
                 FROM "{self.TABLE}"
                 {where_sql}
             """
@@ -189,12 +189,18 @@ class MaterialDataRepository:
     def _format_row(self, row: dict[str, Any]) -> dict[str, Any]:
         row = normalize_row_datetimes(row)
         target_map = self._parse_json_dict(row.get("target_values_json"))
+        predicted_map = self._parse_json_dict(row.get("predicted_values_json"))
+        display_target_map = dict(target_map)
+        for key, value in predicted_map.items():
+            if key not in display_target_map or display_target_map.get(key) in {"", None}:
+                display_target_map[key] = value
         processing_method = self._extract_heat_treatment_method(row.get("processing_json"))
         row["composition_text"] = self._format_json_compact(row.get("composition_json"))
         row["processing_text"] = processing_method
         row["features_text"] = self._format_json_compact(row.get("features_json"))
         row["target_values_text"] = self._format_json_compact(row.get("target_values_json"))
         row["target_values_map"] = target_map
+        row["display_target_values_map"] = display_target_map
         row["predicted_values_text"] = self._format_json_compact(row.get("predicted_values_json"))
         row["judge_reasons_text"] = self._format_json_compact(row.get("judge_reasons_json"))
         row["risk_tags_text"] = self._format_json_compact(row.get("risk_tags_json"))
@@ -273,6 +279,7 @@ class MaterialDataRepository:
             "source": "source",
             "source_name": "source_name",
             "source_row_key": "source_row_key",
+            "iteration": "iteration",
             "is_valid": "is_valid",
             "judge_score": "judge_score",
             "composition": "composition_json",

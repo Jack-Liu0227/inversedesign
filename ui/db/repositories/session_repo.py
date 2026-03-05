@@ -9,7 +9,7 @@ from ui.services.timezone_service import normalize_row_datetimes
 
 
 class SessionRepository:
-    DB_KEYS = ("material_agent_shared", "material_discovery_workflow")
+    DB_KEYS = ("material_agent_shared",)
 
     def find_sessions(self, trace_or_session_id: str) -> list[dict[str, Any]]:
         all_rows: list[dict[str, Any]] = []

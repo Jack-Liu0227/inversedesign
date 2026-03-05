@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from starlette.concurrency import run_in_threadpool
 
-from ui.config import get_config
-from ui.db.repositories.prediction_repo import prediction_repo
-from ui.db.repositories.workflow_repo import workflow_repo
+from ui.dependencies import get_app_config, get_prediction_repository, get_workflow_repository
+from ui.db.repositories.prediction_repo import PredictionRepository
+from ui.db.repositories.workflow_repo import WorkflowRepository
 from ui.schemas.models import PageResult
 
 
-router = APIRouter(prefix="/api/logs", tags=["logs"])
-cfg = get_config()
+router = APIRouter(prefix="/logs", tags=["logs"])
 
 
 @router.get("/predictions")
-def get_predictions(
+async def get_predictions(
     from_: str | None = Query(default=None, alias="from"),
     to: str | None = Query(default=None, alias="to"),
     material_type: str | None = None,
@@ -21,11 +21,14 @@ def get_predictions(
     top_k: int | None = None,
     q: str | None = None,
     page: int = 1,
-    page_size: int = cfg.default_page_size,
+    page_size: int = 20,
+    prediction_repository: PredictionRepository = Depends(get_prediction_repository),
 ):
+    cfg = get_app_config()
     page = max(page, 1)
     page_size = min(max(page_size, 1), cfg.max_page_size)
-    items, total = prediction_repo.list_predictions(
+    items, total = await run_in_threadpool(
+        prediction_repository.list_predictions,
         page=page,
         page_size=page_size,
         material_type=material_type,
@@ -39,7 +42,7 @@ def get_predictions(
 
 
 @router.get("/workflow-events")
-def get_workflow_events(
+async def get_workflow_events(
     workflow_name: str | None = None,
     step_name: str | None = None,
     event_type: str | None = None,
@@ -49,11 +52,14 @@ def get_workflow_events(
     trace_id: str | None = None,
     session_id: str | None = None,
     page: int = 1,
-    page_size: int = cfg.default_page_size,
+    page_size: int = 20,
+    workflow_repository: WorkflowRepository = Depends(get_workflow_repository),
 ):
+    cfg = get_app_config()
     page = max(page, 1)
     page_size = min(max(page_size, 1), cfg.max_page_size)
-    items, total = workflow_repo.list_workflow_events(
+    items, total = await run_in_threadpool(
+        workflow_repository.list_workflow_events,
         page=page,
         page_size=page_size,
         workflow_name=workflow_name,

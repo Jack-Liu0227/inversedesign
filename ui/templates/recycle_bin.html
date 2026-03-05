@@ -8,7 +8,15 @@
 <article class="card reveal">
   <div class="viewer-panel-head">
     <h3>Deleted Records</h3>
-    <button type="button" class="ghost-btn" onclick="restoreSelected()">Restore Selected</button>
+    <div class="viewer-actions">
+      <label class="record-check-wrap">
+        <input type="checkbox" id="recycle-check-all" onchange="toggleRecycleSelectAll(this.checked)" />
+        <span>Select All</span>
+      </label>
+      <button type="button" class="ghost-btn" onclick="restoreSelected()">Restore Selected</button>
+      <button type="button" class="ghost-btn" onclick="purgeSelectedRecycle()">Delete Selected Permanently</button>
+      <button type="button" class="ghost-btn" onclick="purgeAllRecycle()">Clear Recycle Bin</button>
+    </div>
   </div>
   <div class="recycle-page-list">
     {% for item in recycle_items %}

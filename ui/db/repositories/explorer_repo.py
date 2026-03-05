@@ -59,6 +59,8 @@ class ExplorerRepository:
         identifier: str | None = None,
         sort_order: str = "desc",
         extra_filters: dict[str, str] | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
     ) -> tuple[list[dict[str, Any]], int, list[str], str]:
         if table not in self.list_tables(db_key):
             raise ValueError(f"Unknown table: {table}")
@@ -108,6 +110,20 @@ class ExplorerRepository:
                     id_clauses.append(f'CAST("{col}" AS TEXT) = ?')
                 params.append(identifier)
             where_clauses.append(f"({' OR '.join(id_clauses)})")
+
+        if created_from and "created_at" in col_names:
+            created_from_norm = str(created_from).strip().replace("T", " ")
+            if len(created_from_norm) == 16:
+                created_from_norm = f"{created_from_norm}:00"
+            where_clauses.append('CAST("created_at" AS TEXT) >= ?')
+            params.append(created_from_norm)
+
+        if created_to and "created_at" in col_names:
+            created_to_norm = str(created_to).strip().replace("T", " ")
+            if len(created_to_norm) == 16:
+                created_to_norm = f"{created_to_norm}:59"
+            where_clauses.append('CAST("created_at" AS TEXT) <= ?')
+            params.append(created_to_norm)
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
@@ -577,6 +593,38 @@ class ExplorerRepository:
 
             ui_conn.commit()
         return {"restored": restored}
+
+    def purge_recycle_bin(self, *, recycle_ids: list[int] | None = None, all_active: bool = False) -> dict[str, int]:
+        target_ids = [int(x) for x in (recycle_ids or []) if int(x) > 0]
+        if not all_active and not target_ids:
+            return {"deleted": 0}
+
+        with db_manager.connect("ui_classifications", readonly=False) as ui_conn:
+            if all_active:
+                total = int(
+                    ui_conn.execute(
+                        "SELECT COUNT(*) AS c FROM ui_deleted_records WHERE restored_at IS NULL"
+                    ).fetchone()["c"]
+                )
+                if total > 0:
+                    ui_conn.execute("DELETE FROM ui_deleted_records WHERE restored_at IS NULL")
+                ui_conn.commit()
+                return {"deleted": total}
+
+            placeholders = ",".join("?" for _ in target_ids)
+            total = int(
+                ui_conn.execute(
+                    f"SELECT COUNT(*) AS c FROM ui_deleted_records WHERE restored_at IS NULL AND id IN ({placeholders})",
+                    target_ids,
+                ).fetchone()["c"]
+            )
+            if total > 0:
+                ui_conn.execute(
+                    f"DELETE FROM ui_deleted_records WHERE restored_at IS NULL AND id IN ({placeholders})",
+                    target_ids,
+                )
+            ui_conn.commit()
+        return {"deleted": total}
 
 
 explorer_repo = ExplorerRepository()

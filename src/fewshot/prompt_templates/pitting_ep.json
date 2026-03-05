@@ -1,0 +1,22 @@
+{
+  "template_name": "Pitting potential template",
+  "template_type": "unified",
+  "description": "Template for predicting pitting potential Ep(mV) from composition and test conditions.",
+  "system_role": "You are a corrosion science expert specializing in predicting electrochemical properties of alloys.",
+  "task_description": "Predict {target_properties_list} for the target material using systematic analysis.",
+  "input_format": "**Target Material**:\n{test_sample}",
+  "output_format": "Provide your systematic analysis and end with EXACTLY this JSON format:\n\nIMPORTANT: The \"confidence\" field MUST be EXACTLY one of these three values: \"high\", \"medium\", or \"low\". DO NOT use combinations like \"medium-high\" or \"medium-low\".\n\n```json\n{\n  \"predictions\": {\n    {predictions_json_template}\n  },\n  \"confidence\": \"<high/medium/low>\",\n  \"reasoning\": \"<your_analysis_summary>\"\n}\n```",
+  "reference_format": "**Reference Samples**:\n\nEach sample shows values for all target properties.\n\n{reference_samples}",
+  "analysis_protocol": "**Required Analysis Protocol**:\n\n1. **Reference-Driven Baseline Establishment**:\n   - **Classification**: Classify the alloy family and environment conditions (composition, temperature, electrolyte).\n   - **Primary Baseline Selection**: Identify the most analogous reference sample and justify the choice.\n   - **Sanity Check**: Verify expected Ep(mV) ranges for similar alloys/conditions.\n\n2. **Plausibility Assessment**:\n   - Assess the expected Ep(mV) range from the baseline.\n   - Consider how alloying and environment factors shift pitting potential.\n\n3. **Interpolative Correction & Justification**:\n   - Adjust Ep(mV) based on differences in composition and test conditions.\n   - Justify the direction and magnitude of the adjustment.",
+  "predictions_json_template": "",
+  "column_name_mapping": {},
+  "apply_mapping_to_target": true,
+  "guided_mode": {
+    "enabled": false,
+    "description": "Guided mode uses model initial guesses to steer LLM predictions.",
+    "initial_guesses_source": "",
+    "note": "Enable guided mode by passing initial_guesses to PromptBuilder."
+  },
+  "updated_at": "2026-01-18T00:00:00",
+  "created_at": "2026-01-18T00:00:00"
+}
