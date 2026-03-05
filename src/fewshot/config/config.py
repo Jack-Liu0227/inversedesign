@@ -31,7 +31,6 @@ class LLMConfig:
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     max_retries: int = 2
-    allow_mock_on_failure: bool = False
 
 
 @dataclass
@@ -57,10 +56,13 @@ class PipelineConfig:
     def from_json(path: str) -> "PipelineConfig":
         with open(path, "r", encoding="utf-8") as f:
             payload = json.load(f)
+        llm_payload = dict(payload.get("llm", {}))
+        # Backward compatibility: ignore deprecated allow_mock_on_failure if present.
+        llm_payload.pop("allow_mock_on_failure", None)
         return PipelineConfig(
             data=DataConfig(**payload["data"]),
             retrieval=RetrievalConfig(**payload.get("retrieval", {})),
-            llm=LLMConfig(**payload.get("llm", {})),
+            llm=LLMConfig(**llm_payload),
         )
 
 
@@ -76,7 +78,6 @@ def create_default_config(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     max_retries: int = 2,
-    allow_mock_on_failure: bool = False,
 ) -> PipelineConfig:
     resolved_target_cols = target_cols or ["UTS(MPa)", "El(%)"]
     data = DataConfig(
@@ -93,6 +94,5 @@ def create_default_config(
         api_key=api_key,
         base_url=base_url,
         max_retries=max_retries,
-        allow_mock_on_failure=allow_mock_on_failure,
     )
     return PipelineConfig(data=data, retrieval=retrieval, llm=llm)

@@ -71,7 +71,9 @@
       valid only
     </label>
     <button class="ghost-btn" type="button" onclick="importCsvToDb()">Import CSV to DB</button>
+    <button class="ghost-btn" type="button" onclick="importDocsToDb()">Import Theory Docs</button>
     <button class="ghost-btn" type="button" onclick="normalizeProcessingRows()">Normalize Processing</button>
+    <a class="ghost-btn" href="/viewer?db=material_agent_shared&table=material_doc_knowledge">Open Doc Knowledge</a>
     <button class="ghost-btn" type="button" onclick="batchDeleteSelectedRows()">Delete Selected</button>
     <span>total rows: {{ total }}</span>
   </div>
@@ -88,6 +90,7 @@
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('source')">source{% if query.sort_by == 'source' %} ({{ query.sort_order }}){% endif %}</button></th>
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('source_name')">source_name{% if query.sort_by == 'source_name' %} ({{ query.sort_order }}){% endif %}</button></th>
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('source_row_key')">row_key{% if query.sort_by == 'source_row_key' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('iteration')">iteration{% if query.sort_by == 'iteration' %} ({{ query.sort_order }}){% endif %}</button></th>
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('is_valid')">is_valid{% if query.sort_by == 'is_valid' %} ({{ query.sort_order }}){% endif %}</button></th>
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('judge_score')">judge_score{% if query.sort_by == 'judge_score' %} ({{ query.sort_order }}){% endif %}</button></th>
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('composition')">composition{% if query.sort_by == 'composition' %} ({{ query.sort_order }}){% endif %}</button></th>
@@ -116,6 +119,7 @@
           <td>{{ r.source }}</td>
           <td>{{ r.source_name }}</td>
           <td>{{ r.source_row_key }}</td>
+          <td>{{ r.iteration }}</td>
           <td>{{ r.is_valid }}</td>
           <td>{{ "%.3f"|format(r.judge_score) }}</td>
           <td>
@@ -152,7 +156,7 @@
             {% endif %}
           </td>
           {% for tc in target_columns %}
-          <td>{{ r.target_values_map.get(tc, '') }}</td>
+          <td>{{ r.display_target_values_map.get(tc, '') }}</td>
           {% endfor %}
           <td>
             {% if r.target_values_text|length > 120 %}
@@ -235,6 +239,16 @@ async function normalizeProcessingRows() {
   const data = await res.json();
   alert(`Processing normalized rows: ${data.updated}`);
   window.location.reload();
+}
+
+async function importDocsToDb() {
+  const res = await fetch('/api/material-data/import-docs', { method: 'POST' });
+  if (!res.ok) {
+    alert('Import docs failed.');
+    return;
+  }
+  const data = await res.json();
+  alert(`Docs imported: ${data.rows_written}`);
 }
 
 function setMaterialSort(sortBy) {

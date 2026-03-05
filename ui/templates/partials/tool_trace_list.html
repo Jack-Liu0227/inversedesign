@@ -11,12 +11,12 @@
       <button
         type="button"
         class="trace-item"
-        hx-get="/partials/tool-trace-detail?id={{ item.id }}"
+        hx-get="{% if item.source_type == 'step_log' %}/partials/tool-trace-step-log-detail?id={{ item.id }}{% else %}/partials/tool-trace-detail?id={{ item.id }}{% endif %}"
         hx-target="#tool-trace-detail"
         hx-swap="innerHTML"
       >
         <div class="trace-item-top">
-          <strong>#{{ item.id }} {{ item.agent_name or 'unknown-agent' }}</strong>
+          <strong>#{{ item.id }} {{ item.agent_name or 'unknown-agent' }}{% if item.source_type == 'step_log' %} (step-log){% endif %}</strong>
           <span class="muted">{{ item.created_at }}</span>
         </div>
         <div class="trace-item-mid">
@@ -30,6 +30,11 @@
     </div>
   </details>
   {% else %}
-  <div class="empty-state">No tool calls match current filters.</div>
+  <div class="empty-state">
+    No tool calls match current filters.
+    {% if step_log_total and step_log_total > 0 %}
+    This step has `workflow_step_logs` entries ({{ step_log_total }}), but no `agent_tool_call_logs`.
+    {% endif %}
+  </div>
   {% endfor %}
 </div>

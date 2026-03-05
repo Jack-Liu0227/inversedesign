@@ -1,0 +1,393 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head reveal viewer-head">
+  <h1>Doc Evolution</h1>
+  <p>Analyze full knowledge evolution by run and round, with full-text view, compare, and batch delete.</p>
+</section>
+
+<section class="doc-evo-layout">
+  <article class="card reveal doc-evo-filter-card">
+    <div class="doc-evo-filter-head">
+      <h3>Filters</h3>
+      <div class="meta-pills">
+        <button type="button" class="ghost-btn" onclick="deleteSelectedDocCells()">Delete Selected</button>
+        <span class="pill">runs: {{ total_runs }}</span>
+      </div>
+    </div>
+    <form class="doc-evo-filter-grid" method="get" action="/doc-evolution">
+      <label>
+        <span>Material Type</span>
+        <select name="material_type">
+          <option value="">all</option>
+          {% for mt in material_types %}
+          <option value="{{ mt }}" {% if query.material_type == mt %}selected{% endif %}>{{ mt }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Run ID</span>
+        <select name="workflow_run_id">
+          <option value="">all</option>
+          {% for rid in run_ids %}
+          <option value="{{ rid }}" {% if query.workflow_run_id == rid %}selected{% endif %}>{{ rid }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Keyword</span>
+        <input name="q" value="{{ query.q }}" placeholder="title/content/source/tags" />
+      </label>
+      <label>
+        <span>Created From (BJT)</span>
+        <input type="datetime-local" step="60" name="created_from" value="{{ query.created_from }}" />
+      </label>
+      <label>
+        <span>Created To (BJT)</span>
+        <input type="datetime-local" step="60" name="created_to" value="{{ query.created_to }}" />
+      </label>
+      <label>
+        <span>Limit Runs</span>
+        <input type="number" min="1" max="200" name="limit_runs" value="{{ query.limit_runs }}" />
+      </label>
+      <button type="submit" class="viewer-apply-btn">Apply Filters</button>
+    </form>
+  </article>
+
+  <article class="card reveal doc-evo-matrix-card">
+    <div class="doc-evo-matrix-head">
+      <h3>Knowledge Evolution Matrix</h3>
+      <span class="muted">{{ total_runs }} runs / compare by round snapshots</span>
+    </div>
+    <div class="doc-evo-table-wrap">
+      <table class="table doc-evo-table">
+        <thead>
+          <tr>
+            <th><input type="checkbox" onchange="toggleSelectAllDocCells(this.checked)" /></th>
+            <th>Run</th>
+            <th>Bootstrap Knowledge</th>
+            {% for c in columns %}
+              {% if c.startswith('round_') %}
+              <th>{{ c|replace('_', ' ')|title }} Snapshot</th>
+              {% endif %}
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td></td>
+            <td class="doc-evo-run-col">
+              <div class="doc-evo-run-id">{{ row.run_id }}</div>
+              <div class="doc-evo-run-meta">type={{ row.material_type }}</div>
+              <div class="doc-evo-run-meta">rounds={{ row.round_count }}</div>
+              <div class="doc-evo-run-meta">session={{ row.session_id }}</div>
+            </td>
+            <td class="doc-evo-cell">
+              {% set cell = row.bootstrap %}
+              <label class="record-check-wrap">
+                <input type="checkbox" class="doc-cell-check"
+                  data-doc-ids='{{ cell.doc_ids|tojson }}'
+                  data-full-text='{{ cell.full_text|tojson }}'
+                  data-cell-label='{{ ("Bootstrap | " ~ row.run_id)|tojson }}'
+                  data-created-at='{{ cell.created_at }}'
+                />
+                <span class="pill">chunks={{ cell.chunk_count }}</span>
+                {% if cell.chunk_count == 0 %}
+                <span class="pill low">missing bootstrap</span>
+                {% endif %}
+              </label>
+              <p class="doc-evo-preview">{{ cell.text_preview if cell.text_preview else 'No bootstrap content loaded for this material type.' }}</p>
+              <div class="doc-evo-actions">
+                <button type="button" class="ghost-btn"
+                  onclick='openDocEvolutionCell(this)'
+                  data-doc-ids='{{ cell.doc_ids|tojson }}'
+                  data-full-text='{{ cell.full_text|tojson }}'
+                  data-cell-label='{{ ("Bootstrap | " ~ row.run_id)|tojson }}'
+                  data-created-at='{{ cell.created_at }}'
+                >Open</button>
+              </div>
+            </td>
+            {% for c in columns %}
+              {% if c.startswith('round_') %}
+              {% set idx = c.split('_')[1]|int %}
+              {% set round_cell = (row.rounds|selectattr('round_index', 'equalto', idx)|list|first) %}
+              <td class="doc-evo-cell">
+                {% if round_cell and round_cell.chunk_count > 0 %}
+                <label class="record-check-wrap">
+                  <input type="checkbox" class="doc-cell-check"
+                    data-doc-ids='{{ round_cell.doc_ids|tojson }}'
+                    data-full-text='{{ round_cell.full_text|tojson }}'
+                    data-cell-label='{{ ("Round " ~ idx ~ " | " ~ row.run_id)|tojson }}'
+                    data-created-at='{{ round_cell.created_at }}'
+                  />
+                  <span class="pill">chunks={{ round_cell.chunk_count }}</span>
+                </label>
+                <p class="doc-evo-preview">{{ round_cell.text_preview }}</p>
+                <div class="doc-evo-actions">
+                  <button type="button" class="ghost-btn"
+                    onclick='openDocEvolutionCell(this)'
+                    data-doc-ids='{{ round_cell.doc_ids|tojson }}'
+                    data-full-text='{{ round_cell.full_text|tojson }}'
+                    data-cell-label='{{ ("Round " ~ idx ~ " | " ~ row.run_id)|tojson }}'
+                    data-created-at='{{ round_cell.created_at }}'
+                  >Open</button>
+                </div>
+                {% else %}
+                <span class="muted">-</span>
+                {% endif %}
+              </td>
+              {% endif %}
+            {% endfor %}
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="50">
+              <div class="empty-state">No evolution rows found under current filters.</div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="card reveal doc-evo-bottom-card">
+    <div class="doc-evo-bottom-grid" id="doc-evo-bottom-grid">
+      <section class="field-card" id="doc-evo-detail-panel">
+        <header><strong id="doc-evo-detail-title">Cell Detail</strong><span class="muted" id="doc-evo-detail-meta"></span></header>
+        <pre id="doc-evo-detail-text" class="scroll-box">Select a cell and click Open to inspect full text.</pre>
+      </section>
+      <section class="field-card" id="doc-evo-diff-panel">
+        <header>
+          <strong>Round Diff</strong>
+          <span class="muted" id="doc-evo-diff-meta">Selected: 0</span>
+          <button type="button" class="ghost-btn" id="doc-evo-swap-order-btn" onclick="toggleDocEvoBottomOrder()">Diff First</button>
+        </header>
+        <div class="trace-item-mid" style="margin-bottom: 8px;">
+          <button type="button" class="ghost-btn" onclick="runDocDiff()">Compare</button>
+          <button type="button" class="ghost-btn" onclick="clearDocDiff()">Clear</button>
+        </div>
+        <div id="doc-evo-diff-sections" class="doc-evo-diff-sections"></div>
+      </section>
+    </div>
+  </article>
+</section>
+
+<script>
+let _docEvoSelectionCounter = 0;
+
+function _parseDataJson(attr) {
+  try { return JSON.parse(attr || '[]'); } catch (_) { return []; }
+}
+
+function _collectSelectedDocIds() {
+  const all = Array.from(document.querySelectorAll('.doc-cell-check:checked'));
+  const ids = new Set();
+  all.forEach((el) => {
+    _parseDataJson(el.getAttribute('data-doc-ids')).forEach((id) => {
+      const v = parseInt(id, 10);
+      if (Number.isInteger(v) && v > 0) ids.add(v);
+    });
+  });
+  return Array.from(ids).sort((a, b) => a - b);
+}
+
+function toggleSelectAllDocCells(checked) {
+  document.querySelectorAll('.doc-cell-check').forEach((el) => {
+    el.checked = checked;
+    if (checked) {
+      _docEvoSelectionCounter += 1;
+      el.setAttribute('data-selected-order', String(_docEvoSelectionCounter));
+    } else {
+      el.removeAttribute('data-selected-order');
+    }
+  });
+  refreshDiffMetaFromSelection();
+}
+
+function _selectedDiffCells() {
+  return Array.from(document.querySelectorAll('.doc-cell-check:checked'))
+    .map((el) => {
+      const docIds = _parseDataJson(el.getAttribute('data-doc-ids'));
+      const label = (() => {
+        try { return JSON.parse(el.getAttribute('data-cell-label') || '""'); } catch (_) { return ''; }
+      })();
+      const fullText = (() => {
+        try { return JSON.parse(el.getAttribute('data-full-text') || '""'); } catch (_) { return ''; }
+      })();
+      const createdAt = String(el.getAttribute('data-created-at') || '');
+      const selectedOrder = parseInt(el.getAttribute('data-selected-order') || '0', 10);
+      return { docIds, label, fullText, createdAt, selectedOrder };
+    })
+    .filter((x) => Array.isArray(x.docIds) && x.docIds.length > 0)
+    .sort((a, b) => a.selectedOrder - b.selectedOrder);
+}
+
+function refreshDiffMetaFromSelection() {
+  const meta = document.getElementById('doc-evo-diff-meta');
+  if (meta) meta.textContent = `Selected: ${_selectedDiffCells().length}`;
+}
+
+async function deleteSelectedDocCells() {
+  const docIds = _collectSelectedDocIds();
+  if (docIds.length === 0) {
+    alert('Please select at least one cell first.');
+    return;
+  }
+  if (!confirm(`Delete ${docIds.length} document chunks from knowledge table?`)) return;
+  const res = await fetch('/api/material-data/docs/batch-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ doc_ids: docIds }),
+  });
+  if (!res.ok) {
+    alert('Batch delete failed.');
+    return;
+  }
+  window.location.reload();
+}
+
+function openDocEvolutionCell(btn) {
+  const fullText = (() => {
+    try { return JSON.parse(btn.getAttribute('data-full-text') || '""'); } catch (_) { return ''; }
+  })();
+  const label = (() => {
+    try { return JSON.parse(btn.getAttribute('data-cell-label') || '""'); } catch (_) { return 'Cell'; }
+  })();
+  const docIds = _parseDataJson(btn.getAttribute('data-doc-ids')).join(', ');
+  const createdAt = btn.getAttribute('data-created-at') || '';
+  const title = document.getElementById('doc-evo-detail-title');
+  const meta = document.getElementById('doc-evo-detail-meta');
+  const text = document.getElementById('doc-evo-detail-text');
+  if (title) title.textContent = String(label || 'Cell Detail');
+  if (meta) meta.textContent = `doc_ids=[${docIds}] | created_at=${createdAt}`;
+  if (text) text.textContent = String(fullText || '');
+}
+
+function runDocDiff() {
+  const cells = _selectedDiffCells();
+  if (cells.length < 1) {
+    alert('Please select at least one cell to compare.');
+    return;
+  }
+  const root = document.getElementById('doc-evo-diff-sections');
+  if (!root) return;
+  root.classList.add('doc-evo-round-columns');
+  root.innerHTML = '';
+  cells.forEach((item, idx) => {
+    const card = document.createElement('article');
+    card.className = 'doc-evo-round-col';
+    const head = document.createElement('header');
+    head.className = 'doc-evo-round-col-head';
+    const headTitle = document.createElement('span');
+    headTitle.textContent = `${idx + 1}. ${item.label || 'Round'}`;
+    const viewBtn = document.createElement('button');
+    viewBtn.type = 'button';
+    viewBtn.className = 'ghost-btn';
+    viewBtn.textContent = 'View Full';
+    viewBtn.addEventListener('click', () => {
+      if (typeof openTextModal === 'function') {
+        openTextModal(String(item.fullText || ''), String(item.label || 'Round Diff'));
+      }
+    });
+    head.appendChild(headTitle);
+    head.appendChild(viewBtn);
+    const meta = document.createElement('div');
+    meta.className = 'doc-evo-round-col-meta';
+    meta.textContent = `doc_ids=[${item.docIds.join(', ')}] | created_at=${item.createdAt}`;
+    const body = document.createElement('pre');
+    body.className = 'doc-evo-round-col-body';
+    body.textContent = String(item.fullText || '');
+    card.appendChild(head);
+    card.appendChild(meta);
+    card.appendChild(body);
+    root.appendChild(card);
+  });
+  _bindRoundDiffWheelScroll();
+}
+
+function clearDocDiff() {
+  const meta = document.getElementById('doc-evo-diff-meta');
+  const root = document.getElementById('doc-evo-diff-sections');
+  document.querySelectorAll('.doc-cell-check').forEach((el) => {
+    el.checked = false;
+    el.removeAttribute('data-selected-order');
+  });
+  if (meta) meta.textContent = 'Selected: 0';
+  if (root) root.innerHTML = '';
+}
+
+function _bindRoundDiffWheelScroll() {
+  const root = document.getElementById('doc-evo-diff-sections');
+  if (!root) return;
+  root.querySelectorAll('.doc-evo-round-col').forEach((col) => {
+    const body = col.querySelector('.doc-evo-round-col-body');
+    if (!body || col.getAttribute('data-wheel-bound') === '1') return;
+    col.setAttribute('data-wheel-bound', '1');
+    col.addEventListener(
+      'wheel',
+      (evt) => {
+        if (evt.ctrlKey) return;
+        const deltaX = Number(evt.deltaX || 0);
+        const deltaY = Number(evt.deltaY || 0);
+        const wantHorizontal = evt.shiftKey || Math.abs(deltaX) > Math.abs(deltaY);
+        if (wantHorizontal) {
+          root.scrollLeft += deltaX || deltaY;
+          evt.preventDefault();
+          return;
+        }
+        const maxTop = Math.max(0, body.scrollHeight - body.clientHeight);
+        const atTop = body.scrollTop <= 0;
+        const atBottom = body.scrollTop >= maxTop - 1;
+        if ((deltaY < 0 && atTop) || (deltaY > 0 && atBottom)) {
+          root.scrollLeft += deltaY;
+          evt.preventDefault();
+        }
+      },
+      { passive: false },
+    );
+  });
+}
+
+document.querySelectorAll('.doc-cell-check').forEach((el) => {
+  el.addEventListener('change', () => {
+    if (el.checked) {
+      _docEvoSelectionCounter += 1;
+      el.setAttribute('data-selected-order', String(_docEvoSelectionCounter));
+    } else {
+      el.removeAttribute('data-selected-order');
+    }
+    refreshDiffMetaFromSelection();
+  });
+});
+
+function _applyDocEvoBottomOrder(order) {
+  const grid = document.getElementById('doc-evo-bottom-grid');
+  const detail = document.getElementById('doc-evo-detail-panel');
+  const diff = document.getElementById('doc-evo-diff-panel');
+  const btn = document.getElementById('doc-evo-swap-order-btn');
+  if (!grid || !detail || !diff || !btn) return;
+  if (order === 'diff-first') {
+    grid.insertBefore(diff, detail);
+    btn.textContent = 'Detail First';
+  } else {
+    grid.insertBefore(detail, diff);
+    btn.textContent = 'Diff First';
+  }
+}
+
+function toggleDocEvoBottomOrder() {
+  const key = 'docEvoBottomOrder';
+  const current = localStorage.getItem(key) === 'diff-first' ? 'diff-first' : 'detail-first';
+  const next = current === 'detail-first' ? 'diff-first' : 'detail-first';
+  localStorage.setItem(key, next);
+  _applyDocEvoBottomOrder(next);
+}
+
+(() => {
+  const key = 'docEvoBottomOrder';
+  const initial = localStorage.getItem(key) === 'diff-first' ? 'diff-first' : 'detail-first';
+  _applyDocEvoBottomOrder(initial);
+})();
+</script>
+{% endblock %}

@@ -6,12 +6,21 @@ from src.agents import (
     material_recommender_agent,
     material_router_agent,
 )
-from src.common import cleanup_workflow_logs, configure_app_logging, run_local_db_migrations, should_force_tracing
+from src.common import (
+    cleanup_workflow_logs,
+    configure_app_logging,
+    ensure_bootstrap_material_docs,
+    ensure_iteration_theory_snapshots,
+    run_local_db_migrations,
+    should_force_tracing,
+)
 
 
 def _bootstrap_runtime() -> None:
     configure_app_logging()
     run_local_db_migrations()
+    ensure_bootstrap_material_docs()
+    ensure_iteration_theory_snapshots()
     cleanup_workflow_logs()
 
 

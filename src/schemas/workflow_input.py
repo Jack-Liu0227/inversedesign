@@ -13,6 +13,7 @@ class WorkflowInput(BaseModel):
     human_loop: bool | str = Field(default=False)
     max_iterations: int | str = Field(default=3)
     top_k: Optional[int | str] = Field(default=None)
+    recommend_count_policy: Optional[str] = Field(default=None)
 
     experiment_feedback: Optional[dict[str, Any]] = Field(default=None)
     preference_feedback: Optional[str] = Field(default=None)
@@ -69,7 +70,7 @@ class WorkflowInput(BaseModel):
                 return None
         return value
 
-    @field_validator("preference_feedback", "user_id", "log_trace_id", mode="before")
+    @field_validator("preference_feedback", "user_id", "log_trace_id", "recommend_count_policy", mode="before")
     @classmethod
     def _coerce_optional_text(cls, value: Any) -> Optional[str]:
         if value is None:

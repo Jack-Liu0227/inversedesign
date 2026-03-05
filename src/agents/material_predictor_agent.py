@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import os
 from typing import Any, Dict, Optional
 
 from agno.agent import Agent
@@ -14,13 +15,33 @@ from src.fewshot.parsing import ResultParser
 from src.schemas import AgentPredictorOutput, CandidatePrediction
 
 
+def _predictor_api_key_from_env(base_url: str, fallback_key: str) -> str:
+    url = str(base_url or "").lower()
+    env_var = ""
+    if "deepseek" in url:
+        env_var = "DEEPSEEK_API_KEY"
+    elif "openrouter" in url:
+        env_var = "OPENROUTER_API_KEY"
+    elif "ricardochat" in url or "ricardo" in url:
+        env_var = "RICARDO_API_KEY"
+    elif "echoflow" in url:
+        env_var = "ECHOFLOW_API_KEY"
+    elif "localhost:11434" in url or "ollama" in url:
+        env_var = "OLLAMA_API_KEY"
+
+    if env_var:
+        value = os.getenv(env_var, "").strip()
+        if value:
+            return value
+    return str(fallback_key or "").strip()
+
+
 def _build_predictor() -> FewshotPredictor:
     model = build_model("material_predictor/fewshot")
     return FewshotPredictor(
         model_name=model.id,
-        api_key=model.api_key,
+        api_key=_predictor_api_key_from_env(model.base_url, model.api_key),
         base_url=model.base_url,
-        allow_mock_on_failure=True,
     )
 
 
@@ -97,9 +118,9 @@ def _prediction_reasoning_payload(
 
 def _fallback_reasoning(*, predicted_values: Dict[str, Any], confidence: str) -> str:
     preview = ", ".join(f"{k}={v}" for k, v in list((predicted_values or {}).items())[:3])
-    base = "Fallback estimate generated from nearest reference samples."
+    base = "LLM response did not provide a usable reasoning field."
     if preview:
-        return f"{base} Predicted profile: {preview}. Confidence assessed as {confidence}."
+        return f"{base} Parsed predicted profile: {preview}. Confidence assessed as {confidence}."
     return f"{base} Confidence assessed as {confidence}."
 
 

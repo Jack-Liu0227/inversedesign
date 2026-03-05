@@ -31,6 +31,17 @@
           {% endfor %}
         </select>
       </label>
+      {% if has_material_type_column %}
+      <label>
+        <span>Material Type</span>
+        <select name="material_type" id="viewer-material-type" onchange="handleViewerCascade('material_type')">
+          <option value="">all</option>
+          {% for mt in material_type_values %}
+          <option value="{{ mt }}" {% if filter_query.material_type == mt %}selected{% endif %}>{{ mt }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
       {% if workflow_filterable %}
       <label>
         <span>Trace ID</span>
@@ -128,6 +139,17 @@
         <span>Code Filter</span>
         <input name="code" value="{{ code }}" placeholder="id / trace_id / session_id / run_id / barcode" />
       </label>
+      {% if selected_table == 'material_doc_knowledge' %}
+      <label>
+        <span>Doc View</span>
+        <select name="doc_view" id="viewer-doc-view" onchange="handleViewerCascade('doc_view')">
+          <option value="chunk" {% if filter_query.doc_view == 'chunk' %}selected{% endif %}>chunk</option>
+          <option value="full" {% if filter_query.doc_view == 'full' %}selected{% endif %}>full</option>
+        </select>
+      </label>
+      {% else %}
+      <input type="hidden" name="doc_view" value="{{ filter_query.doc_view or 'chunk' }}" />
+      {% endif %}
       <label>
         <span>Keyword</span>
         <input name="q" value="{{ q }}" placeholder="full-text search" />

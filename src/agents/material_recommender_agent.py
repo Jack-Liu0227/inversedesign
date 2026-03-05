@@ -347,10 +347,10 @@ material_recommender_agent = Agent(
         "First normalize material type to one of supported dataset keys.",
         "Use generate_candidates_with_rag to produce candidate composition and processing suggestions.",
         "Always provide processing as exactly one key: 'heat treatment method' with full route text.",
-        "Use predict_generated_candidates to predict generated candidates when prediction is requested.",
+        "If previous_round_feedback_summary is provided, avoid repeating top risk tags and failure reasons.",
         "Never call recommendation tools without goal. If goal is missing, ask a clarification question instead of tool call.",
         "Return concise rationale for each candidate.",
     ],
-    tools=[generate_candidates_with_rag, predict_generated_candidates],
+    tools=[generate_candidates_with_rag],
     markdown=True,
 )

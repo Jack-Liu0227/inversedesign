@@ -18,8 +18,8 @@ class AppConfig:
     def db_paths(self) -> dict[str, Path]:
         return {
             "material_agent_shared": self.db_dir / "material_agent_shared.db",
-            "material_discovery_workflow": self.db_dir / "material_discovery_workflow.db",
             "prediction_prompt_logs": self.db_dir / "prediction_prompt_logs.db",
+            "prompt_llmresponse": self.db_dir / "prompt_llmresponse.db",
             "workflow_audit": self.db_dir / "workflow_audit.db",
             "ui_classifications": self.db_dir / "ui_classifications.db",
         }

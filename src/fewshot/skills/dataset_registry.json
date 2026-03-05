@@ -32,7 +32,7 @@
       "name": "HEA pitting potential",
       "dataset_path": "datasets/HEA_data/Pitting_potential_data_xiongjie.csv",
       "target_cols": ["Ep(mV)"],
-      "template_path": "src/fewshot/prompt_templates/default_unified.json",
+      "template_path": "src/fewshot/prompt_templates/pitting_ep.json",
       "default_top_k": 3
     }
   }

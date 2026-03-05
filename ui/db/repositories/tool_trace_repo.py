@@ -19,13 +19,11 @@ class ToolTraceRepository:
         "Human Feedback",
         "Final Decision",
     ]
-
     def list_tool_calls(
         self,
         *,
         session_id: str | None = None,
         step_name: str | None = None,
-        agent_name: str | None = None,
         tool_name: str | None = None,
         success: int | None = None,
         sort_order: str = "desc",
@@ -40,9 +38,6 @@ class ToolTraceRepository:
         if step_name:
             where.append("step_name = ?")
             params.append(step_name)
-        if agent_name:
-            where.append("agent_name = ?")
-            params.append(agent_name)
         if tool_name:
             where.append("tool_name = ?")
             params.append(tool_name)
@@ -95,9 +90,6 @@ class ToolTraceRepository:
                 step_rows = conn.execute(
                     "SELECT DISTINCT step_name FROM agent_tool_call_logs WHERE step_name IS NOT NULL AND step_name <> '' ORDER BY step_name"
                 ).fetchall()
-                agent_rows = conn.execute(
-                    "SELECT DISTINCT agent_name FROM agent_tool_call_logs WHERE agent_name IS NOT NULL AND agent_name <> '' ORDER BY agent_name"
-                ).fetchall()
                 tool_rows = conn.execute(
                     "SELECT DISTINCT tool_name FROM agent_tool_call_logs WHERE tool_name IS NOT NULL AND tool_name <> '' ORDER BY tool_name"
                 ).fetchall()
@@ -105,8 +97,15 @@ class ToolTraceRepository:
             return {"step_names": [], "agent_names": [], "tool_names": []}
 
         return {
-            "step_names": self._ordered_step_names([str(r[0]) for r in step_rows]),
-            "agent_names": [str(r[0]) for r in agent_rows],
+            "step_names": self._ordered_step_names(
+                sorted(
+                    {
+                        *[str(r[0]) for r in step_rows],
+                        *self._WORKFLOW_STEP_ORDER,
+                    }
+                )
+            ),
+            "agent_names": [],
             "tool_names": [str(r[0]) for r in tool_rows],
         }
 
@@ -115,7 +114,6 @@ class ToolTraceRepository:
         *,
         session_id: str | None = None,
         step_name: str | None = None,
-        agent_name: str | None = None,
         success: int | None = None,
     ) -> dict[str, list[str]]:
         try:
@@ -126,27 +124,26 @@ class ToolTraceRepository:
                     session_id=session_id,
                     success=success,
                 )
-                agent_names = self._distinct_values(
-                    conn=conn,
-                    column="agent_name",
-                    session_id=session_id,
-                    step_name=step_name,
-                    success=success,
-                )
                 tool_names = self._distinct_values(
                     conn=conn,
                     column="tool_name",
                     session_id=session_id,
                     step_name=step_name,
-                    agent_name=agent_name,
                     success=success,
                 )
         except sqlite3.OperationalError:
             return {"step_names": [], "agent_names": [], "tool_names": []}
 
         return {
-            "step_names": self._ordered_step_names(step_names),
-            "agent_names": agent_names,
+            "step_names": self._ordered_step_names(
+                sorted(
+                    {
+                        *step_names,
+                        *self._WORKFLOW_STEP_ORDER,
+                    }
+                )
+            ),
+            "agent_names": [],
             "tool_names": tool_names,
         }
 
@@ -157,7 +154,6 @@ class ToolTraceRepository:
         column: str,
         session_id: str | None = None,
         step_name: str | None = None,
-        agent_name: str | None = None,
         success: int | None = None,
     ) -> list[str]:
         where: list[str] = [f"{column} IS NOT NULL", f"{column} <> ''"]
@@ -168,9 +164,6 @@ class ToolTraceRepository:
         if step_name:
             where.append("step_name = ?")
             params.append(step_name)
-        if agent_name:
-            where.append("agent_name = ?")
-            params.append(agent_name)
         if success is not None:
             where.append("success = ?")
             params.append(int(success))

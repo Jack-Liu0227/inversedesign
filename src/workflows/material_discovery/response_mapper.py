@@ -6,7 +6,7 @@ from typing import Any
 from src.schemas import CandidateWithPrediction, MaterialDiscoveryResponse
 from src.workflows.material_discovery.state import MaterialDiscoveryState
 
-from .material_normalization import dict_or_empty
+from .material_normalization import dict_or_empty, normalize_processing
 
 
 def _to_candidate_rows(
@@ -40,7 +40,7 @@ def _to_candidate_rows(
             CandidateWithPrediction(
                 candidate_index=idx,
                 composition=dict_or_empty(candidate.get("composition", {})),
-                processing=dict_or_empty(candidate.get("processing", {})),
+                processing=normalize_processing(candidate.get("processing", {})),
                 score=float(candidate.get("score", 0.0) or 0.0),
                 reason=str(candidate.get("reason", "") or "").strip(),
                 expected_tradeoff=str(candidate.get("expected_tradeoff", "") or "").strip(),

@@ -23,6 +23,7 @@ from src.common import (
     create_workflow_run_audit,
     fail_workflow_run_audit,
     finalize_workflow_run_audit,
+    log_agent_tool_call,
     log_workflow_event,
     log_workflow_step,
     run_local_db_migrations,
@@ -32,6 +33,7 @@ from src.schemas import WorkflowInput
 run_local_db_migrations()
 LOGGER = logging.getLogger("inversedesign.workflow")
 _AUDIT_ROW_BY_TRACE: Dict[str, int] = {}
+_WORKFLOW_NO_TOOL_TRACE_STEPS = {"Persistence", "Human Feedback", "Final Decision"}
 try:
     _STEP_INIT_PARAMS = set(inspect.signature(Step.__init__).parameters.keys())
 except Exception:
@@ -173,6 +175,7 @@ def summarize_request(request: WorkflowInput) -> Dict[str, Any]:
         "human_loop": bool(request.human_loop),
         "max_iterations": request.max_iterations,
         "top_k": request.top_k,
+        "recommend_count_policy": request.recommend_count_policy,
         "experiment_feedback": feedback_status,
         "measured_values": measured_preview,
         "preference_feedback": preference_feedback,
@@ -372,6 +375,22 @@ def build_step(name: str, executor: Any, **kwargs: Any) -> Step:
                 latency_ms=elapsed_ms,
                 success=output.success,
             )
+            if name in _WORKFLOW_NO_TOOL_TRACE_STEPS:
+                log_agent_tool_call(
+                    workflow_name="material_discovery_workflow",
+                    trace_id=trace_id(step_input, request),
+                    session_id=session_id_from_step_input(step_input),
+                    run_id=run_id_from_step_input(step_input),
+                    execution_id=None,
+                    step_name=name,
+                    agent_name=name,
+                    agent_source="workflow_step",
+                    tool_name=None,
+                    tool_args={"input": step_input_payload},
+                    tool_result={"output": output_payload},
+                    success=bool(output.success),
+                    error_text=None,
+                )
             LOGGER.info("step=%s success=%s latency_ms=%s", name, output.success, elapsed_ms)
 
             if is_final_step:
@@ -427,6 +446,22 @@ def build_step(name: str, executor: Any, **kwargs: Any) -> Step:
                 success=False,
                 error_text=str(exc),
             )
+            if name in _WORKFLOW_NO_TOOL_TRACE_STEPS:
+                log_agent_tool_call(
+                    workflow_name="material_discovery_workflow",
+                    trace_id=trace_id(step_input, request),
+                    session_id=session_id_from_step_input(step_input),
+                    run_id=run_id_from_step_input(step_input),
+                    execution_id=None,
+                    step_name=name,
+                    agent_name=name,
+                    agent_source="workflow_step",
+                    tool_name=None,
+                    tool_args={"input": to_jsonable(step_input.input) if debug else summarize_request(request)},
+                    tool_result={"error": str(exc)},
+                    success=False,
+                    error_text=str(exc),
+                )
             LOGGER.exception("step=%s failed latency_ms=%s error=%s", name, elapsed_ms, exc)
             fail_workflow_run_audit(audit_id=audit_id, error_text=str(exc))
             pop_run_audit_row(step_input, request)

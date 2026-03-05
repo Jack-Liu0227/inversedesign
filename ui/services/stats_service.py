@@ -5,18 +5,28 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ui.db.repositories.classification_repo import classification_repo
-from ui.db.repositories.prediction_repo import prediction_repo
-from ui.db.repositories.workflow_repo import workflow_repo
+from ui.db.repositories.classification_repo import ClassificationRepository, classification_repo
+from ui.db.repositories.prediction_repo import PredictionRepository, prediction_repo
+from ui.db.repositories.workflow_repo import WorkflowRepository, workflow_repo
 
 
 class StatsService:
     _BEIJING = ZoneInfo("Asia/Shanghai")
 
+    def __init__(
+        self,
+        prediction_repository: PredictionRepository | None = None,
+        workflow_repository: WorkflowRepository | None = None,
+        classification_repository: ClassificationRepository | None = None,
+    ) -> None:
+        self._prediction_repository = prediction_repository or prediction_repo
+        self._workflow_repository = workflow_repository or workflow_repo
+        self._classification_repository = classification_repository or classification_repo
+
     def dashboard(self) -> dict[str, Any]:
-        pred_rows, pred_total = prediction_repo.list_predictions(page=1, page_size=200)
-        wf_rows, wf_total = workflow_repo.list_workflow_events(page=1, page_size=500)
-        annotations = classification_repo.get_annotations()
+        pred_rows, pred_total = self._prediction_repository.list_predictions(page=1, page_size=200)
+        wf_rows, wf_total = self._workflow_repository.list_workflow_events(page=1, page_size=500)
+        annotations = self._classification_repository.get_annotations()
 
         now_local = datetime.now(self._BEIJING)
         last_24h = now_local - timedelta(hours=24)

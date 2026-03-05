@@ -18,9 +18,10 @@
       <nav>
         <a class="nav-link {% if active == 'dashboard' %}active{% endif %}" href="/">Dashboard</a>
         <a class="nav-link {% if active == 'viewer' %}active{% endif %}" href="/viewer">Viewer</a>
+        <a class="nav-link {% if active == 'tool_trace' %}active{% endif %}" href="/tool-trace">Tool Trace</a>
+        <a class="nav-link {% if active == 'doc_evolution' %}active{% endif %}" href="/doc-evolution">Doc Evolution</a>
         <a class="nav-link {% if active == 'material_data' %}active{% endif %}" href="/material-data">Data Preview</a>
         <a class="nav-link {% if active == 'explorer' %}active{% endif %}" href="/explorer">Explorer</a>
-        <a class="nav-link {% if active == 'tool_trace' %}active{% endif %}" href="/tool-trace">Tool Trace</a>
         <a class="nav-link {% if active == 'recycle' %}active{% endif %}" href="/recycle-bin">Recycle Bin</a>
       </nav>
       {% block sidebar_extra %}{% endblock %}

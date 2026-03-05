@@ -1,6 +1,23 @@
 <div class="viewer-panel-head">
   <h3>Detail</h3>
-  {% if key_val %}<span class="muted">Record {{ key_val }}</span>{% endif %}
+  <div class="viewer-actions">
+    {% if key_val %}<span class="muted">Record {{ key_val }}</span>{% endif %}
+    {% if table == 'material_doc_knowledge' and detail_row and detail_row.get('source_name') and (doc_view or 'chunk') == 'chunk' %}
+    <button
+      type="button"
+      class="ghost-btn"
+      onclick='viewFullMaterialDocFromDetail(
+        {{ detail_row.get("source_name")|tojson }},
+        {{ detail_row.get("material_type", "")|tojson }},
+        {{ detail_row.get("source_kind", "")|tojson }},
+        {{ detail_row.get("workflow_run_id", "")|tojson }},
+        {{ detail_row.get("round_index", 0)|tojson }}
+      )'
+    >
+      View Full Doc
+    </button>
+    {% endif %}
+  </div>
 </div>
 <div class="viewer-detail-body">
   {% for section in detail_sections %}

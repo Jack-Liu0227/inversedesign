@@ -739,3 +739,227 @@ code,
     height: calc(100vh - 20px);
   }
 }
+
+.doc-evo-layout {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.doc-evo-filter-card h3,
+.doc-evo-matrix-card h3 {
+  margin: 0;
+  font-family: "Fraunces", serif;
+}
+
+.doc-evo-filter-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.doc-evo-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.doc-evo-filter-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.doc-evo-filter-grid label span {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.doc-evo-matrix-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.doc-evo-table-wrap {
+  overflow: auto;
+  max-height: 52vh;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.doc-evo-table {
+  min-width: 1200px;
+}
+
+.doc-evo-table th:first-child,
+.doc-evo-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: #f8f3ea;
+}
+
+.doc-evo-table th:nth-child(2),
+.doc-evo-table td:nth-child(2) {
+  position: sticky;
+  left: 46px;
+  z-index: 3;
+  background: #fffaf2;
+  min-width: 250px;
+}
+
+.doc-evo-cell {
+  min-width: 340px;
+  background: #fffdfa;
+}
+
+.doc-evo-run-col {
+  min-width: 250px;
+}
+
+.doc-evo-run-id {
+  font-weight: 700;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+.doc-evo-run-meta {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.doc-evo-preview {
+  margin: 6px 0 8px;
+  padding: 8px;
+  border: 1px solid #e6dece;
+  border-radius: 8px;
+  background: #fdf8ef;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.doc-evo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.doc-evo-bottom-card {
+  padding-top: 14px;
+}
+
+.doc-evo-bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.doc-evo-bottom-grid .field-card pre.scroll-box {
+  min-height: 320px;
+  height: 320px;
+  max-height: 320px;
+}
+
+.doc-evo-diff-sections {
+  max-height: 370px;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+}
+
+.doc-evo-round-columns {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 560px;
+  gap: 10px;
+  align-items: start;
+  padding-bottom: 2px;
+}
+
+.doc-evo-round-col {
+  border: 1px solid #decfb8;
+  border-radius: 8px;
+  background: #fffdf8;
+  min-height: 340px;
+}
+
+.doc-evo-round-col-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-bottom: 1px solid #e6dac8;
+  background: #f8f2e8;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4b4338;
+}
+
+.doc-evo-round-col-meta {
+  padding: 6px 8px;
+  border-bottom: 1px solid #efe3d4;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.field-card pre.doc-evo-round-col-body {
+  margin: 0;
+  padding: 8px;
+  height: 320px;
+  min-height: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+@media (max-width: 1400px) {
+  .doc-evo-filter-grid {
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+  }
+}
+
+@media (max-width: 1000px) {
+  .doc-evo-filter-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .doc-evo-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .doc-evo-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .doc-evo-table th:first-child,
+  .doc-evo-table td:first-child,
+  .doc-evo-table th:nth-child(2),
+  .doc-evo-table td:nth-child(2) {
+    position: static;
+  }
+}

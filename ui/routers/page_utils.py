@@ -14,6 +14,7 @@ def to_record_card(row: dict, columns: list[str], record_key: str, table: str) -
         "workflow_io_logs": ["payload_json", "error_text"],
         "workflow_run_audit": ["final_result_json", "summary_json", "error_text"],
         "material_samples": ["predicted_values_json", "judge_reasons_json", "risk_tags_json"],
+        "material_doc_knowledge": ["content", "tags_json", "title"],
     }
     preferred = preview_priority.get(str(table or "").strip(), [])
     preview_col = ""
@@ -52,6 +53,10 @@ def to_record_card(row: dict, columns: list[str], record_key: str, table: str) -
         "material_type",
         "round_index",
         "candidate_index",
+        "source_name",
+        "source_kind",
+        "chunk_index",
+        "chunk_count",
         "is_valid",
         "confidence",
     ):
@@ -173,10 +178,13 @@ def field_item(key: str, value: Any) -> dict:
 
 
 def expand_structured_field(key: str, value: Any) -> list[dict]:
-    entries: list[dict] = [field_item(key, value)]
+    lower_key = str(key).strip().lower()
+    # For processing_json we only want the meaningful extracted fields
+    # (e.g. processing_json.heat treatment method), not duplicate raw JSON block.
+    entries: list[dict] = [] if lower_key == "processing_json" else [field_item(key, value)]
     normalized = decode_nested_json(value)
     if not isinstance(normalized, dict):
-        return entries
+        return entries if entries else [field_item(key, value)]
 
     candidate = normalized.get("output") if "output" in normalized else normalized.get("input")
     root_payload = candidate if isinstance(candidate, dict) else normalized
@@ -250,6 +258,7 @@ def viewer_extra_filters(
     trace_id: str | None = None,
     session_id: str | None = None,
     run_id: str | None = None,
+    material_type: str | None = None,
     step_name: str | None = None,
     agent_name: str | None = None,
     tool_name: str | None = None,
@@ -263,6 +272,7 @@ def viewer_extra_filters(
         "trace_id": str(trace_id or "").strip(),
         "session_id": str(session_id or "").strip(),
         "run_id": str(run_id or "").strip(),
+        "material_type": str(material_type or "").strip(),
         "step_name": str(step_name or "").strip(),
         "agent_name": str(agent_name or "").strip(),
         "tool_name": str(tool_name or "").strip(),
@@ -314,7 +324,11 @@ def tool_trace_detail_payload(item: dict | None) -> dict[str, str]:
     tool_output_decoded = decode_nested_json(tool_output_raw)
 
     if isinstance(tool_input_decoded, (dict, list)):
-        tool_input = json.dumps(tool_input_decoded, ensure_ascii=False, indent=2)
+        step_name = str(item.get("step_name") or "").strip().lower()
+        if "rationality" in step_name and isinstance(tool_input_decoded, dict):
+            tool_input = _format_rationality_tool_input(tool_input_decoded)
+        else:
+            tool_input = json.dumps(tool_input_decoded, ensure_ascii=False, indent=2)
     else:
         tool_input = str(tool_input_decoded)
 
@@ -328,6 +342,103 @@ def tool_trace_detail_payload(item: dict | None) -> dict[str, str]:
         "tool_output": humanize_escaped_text(tool_output),
         "error_text": str(item.get("error_text") or ""),
     }
+
+
+def _extract_json_after_prefix(text: str, prefix: str) -> tuple[Any, int, int]:
+    start = text.find(prefix)
+    if start < 0:
+        return None, -1, -1
+    idx = start + len(prefix)
+    while idx < len(text) and text[idx].isspace():
+        idx += 1
+    if idx >= len(text) or text[idx] not in "[{":
+        return None, -1, -1
+    open_ch = text[idx]
+    close_ch = "]" if open_ch == "[" else "}"
+    depth = 0
+    in_str = False
+    escape = False
+    end = idx
+    while end < len(text):
+        ch = text[end]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == "\"":
+                in_str = False
+        else:
+            if ch == "\"":
+                in_str = True
+            elif ch == open_ch:
+                depth += 1
+            elif ch == close_ch:
+                depth -= 1
+                if depth == 0:
+                    raw = text[idx : end + 1]
+                    try:
+                        return json.loads(raw), idx, end + 1
+                    except Exception:
+                        return None, -1, -1
+        end += 1
+    return None, -1, -1
+
+
+def _extract_scalar_line(text: str, key: str) -> str:
+    marker = f"{key}="
+    pos = text.find(marker)
+    if pos < 0:
+        return ""
+    start = pos + len(marker)
+    end = text.find("\n", start)
+    if end < 0:
+        end = len(text)
+    return str(text[start:end]).strip()
+
+
+def _format_rationality_prompt(prompt: str) -> str:
+    raw = str(prompt or "").strip()
+    if not raw:
+        return ""
+    goal = _extract_scalar_line(raw, "goal")
+    material_type = _extract_scalar_line(raw, "material_type")
+    candidates, c_start, c_end = _extract_json_after_prefix(raw, "candidates=")
+    preds, p_start, p_end = _extract_json_after_prefix(raw, "candidate_predictions=")
+    if preds is None:
+        preds, p_start, p_end = _extract_json_after_prefix(raw, "predictions=")
+
+    cut_positions = [x for x in [c_start, p_start] if x >= 0]
+    instruction = raw[: min(cut_positions)] if cut_positions else raw
+    parts: list[str] = []
+    if instruction.strip():
+        parts.append("## Instructions\n" + instruction.strip())
+    if goal:
+        parts.append("## Goal\n" + goal)
+    if material_type:
+        parts.append("## Material Type\n" + material_type)
+    if candidates is not None:
+        count = len(candidates) if isinstance(candidates, list) else 1
+        parts.append(f"## Candidates ({count})\n" + json.dumps(candidates, ensure_ascii=False, indent=2))
+    if preds is not None:
+        count = len(preds) if isinstance(preds, list) else 1
+        parts.append(f"## Candidate Predictions ({count})\n" + json.dumps(preds, ensure_ascii=False, indent=2))
+
+    trailing_start = max(c_end, p_end)
+    if trailing_start > 0:
+        trailing = raw[trailing_start:].strip()
+        if trailing:
+            parts.append("## Extra\n" + trailing)
+    return "\n\n".join([p for p in parts if p]).strip()
+
+
+def _format_rationality_tool_input(payload: dict[str, Any]) -> str:
+    prompt = str(payload.get("prompt") or "").strip()
+    formatted_prompt = _format_rationality_prompt(prompt)
+    out = dict(payload)
+    if formatted_prompt:
+        out["prompt"] = formatted_prompt
+    return json.dumps(out, ensure_ascii=False, indent=2)
 
 
 def parse_success_query(value: str | None) -> int | None:

@@ -23,15 +23,6 @@
         </select>
       </label>
       <label>
-        <span>Agent</span>
-        <select id="trace-agent" name="agent_name" onchange="handleToolTraceCascade('agent')">
-          <option value="">all</option>
-          {% for v in filters.agent_names %}
-          <option value="{{ v }}" {% if query.agent_name == v %}selected{% endif %}>{{ v }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
         <span>Tool</span>
         <select id="trace-tool" name="tool_name" onchange="handleToolTraceCascade('tool')">
           <option value="">all</option>

@@ -137,7 +137,7 @@ def _normalize_df_value(value: Any) -> Any:
 def _split_storage_columns(df: pd.DataFrame, candidate_cols: list[str]) -> tuple[str, list[str]]:
     if not candidate_cols:
         return "", []
-    preferred_names = ("heat treatment method",)
+    preferred_names = ("heat treatment method", "processing_description")
     lower_to_original = {str(c).strip().lower(): c for c in candidate_cols}
     for name in preferred_names:
         matched = lower_to_original.get(str(name).strip().lower())
@@ -176,7 +176,7 @@ def import_csv_datasets_to_db() -> dict[str, Any]:
                 if _normalize_df_value(row.get(col)) not in (None, 0, 0.0)
             }
             processing_text = _normalize_processing_text(row.get(processing_col)) if processing_col else ""
-            processing = {"heat treatment method": processing_text} if processing_text else {}
+            processing = {"heat treatment method": processing_text or "No processing"}
             features = {
                 col: _normalize_df_value(row.get(col))
                 for col in storage_feature_cols

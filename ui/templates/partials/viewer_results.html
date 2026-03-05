@@ -23,7 +23,7 @@
     </div>
     <button
       class="ghost-btn viewer-open-btn"
-      hx-get="/partials/viewer-detail?db={{ db }}&table={{ table }}&key_col={{ rec.key_col }}&key_val={{ rec.key_val }}"
+      hx-get="/partials/viewer-detail?db={{ db }}&table={{ table }}&key_col={{ rec.key_col }}&key_val={{ rec.key_val }}&doc_view={{ doc_view or 'chunk' }}"
       hx-target="#viewer-detail"
       hx-swap="innerHTML"
       type="button"

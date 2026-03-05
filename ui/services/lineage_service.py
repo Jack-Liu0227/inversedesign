@@ -2,14 +2,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from ui.db.repositories.session_repo import session_repo
-from ui.db.repositories.workflow_repo import workflow_repo
+from ui.db.repositories.session_repo import SessionRepository, session_repo
+from ui.db.repositories.workflow_repo import WorkflowRepository, workflow_repo
 
 
 class LineageService:
+    def __init__(
+        self,
+        workflow_repository: WorkflowRepository | None = None,
+        session_repository: SessionRepository | None = None,
+    ) -> None:
+        self._workflow_repository = workflow_repository or workflow_repo
+        self._session_repository = session_repository or session_repo
+
     def build_lineage(self, trace_or_session_id: str) -> dict[str, Any]:
-        events = workflow_repo.find_lineage_events(trace_or_session_id)
-        audits = workflow_repo.find_run_audits(trace_or_session_id)
+        events = self._workflow_repository.find_lineage_events(trace_or_session_id)
+        audits = self._workflow_repository.find_run_audits(trace_or_session_id)
 
         linked_session_ids = {trace_or_session_id}
         for event in events:
@@ -21,7 +29,7 @@ class LineageService:
 
         sessions: list[dict[str, Any]] = []
         for sid in linked_session_ids:
-            sessions.extend(session_repo.find_sessions(sid))
+            sessions.extend(self._session_repository.find_sessions(sid))
 
         nodes: list[dict[str, Any]] = []
         edges: list[dict[str, str]] = []

@@ -1,22 +1,31 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Annotated
 
+from fastapi import APIRouter, Depends
+from starlette.concurrency import run_in_threadpool
+
+from ui.dependencies import get_classification_service
 from ui.schemas.models import AnnotationStateRequest, AssignTagRequest, TagCreateRequest
-from ui.services.classification_service import classification_service
+from ui.services.classification_service import ClassificationService
 
 
-router = APIRouter(prefix="/api/classifications", tags=["classifications"])
+router = APIRouter(prefix="/classifications", tags=["classifications"])
 
 
 @router.get("/tags")
-def list_tags():
-    return {"items": classification_service.list_tags()}
+async def list_tags(service: Annotated[ClassificationService, Depends(get_classification_service)]):
+    items = await run_in_threadpool(service.list_tags)
+    return {"items": items}
 
 
 @router.post("/tags")
-def create_tag(req: TagCreateRequest):
-    return classification_service.create_tag(
+async def create_tag(
+    req: TagCreateRequest,
+    service: Annotated[ClassificationService, Depends(get_classification_service)],
+):
+    return await run_in_threadpool(
+        service.create_tag,
         name=req.name,
         color=req.color,
         group_name=req.group_name,
@@ -25,13 +34,18 @@ def create_tag(req: TagCreateRequest):
 
 
 @router.get("/annotations")
-def list_annotations():
-    return {"items": classification_service.list_annotations()}
+async def list_annotations(service: Annotated[ClassificationService, Depends(get_classification_service)]):
+    items = await run_in_threadpool(service.list_annotations)
+    return {"items": items}
 
 
 @router.post("/assign")
-def assign_tags(req: AssignTagRequest):
-    return classification_service.assign_tags(
+async def assign_tags(
+    req: AssignTagRequest,
+    service: Annotated[ClassificationService, Depends(get_classification_service)],
+):
+    return await run_in_threadpool(
+        service.assign_tags,
         source_db=req.source_db,
         source_table=req.source_table,
         source_pk=req.source_pk,
@@ -40,8 +54,12 @@ def assign_tags(req: AssignTagRequest):
 
 
 @router.post("/state")
-def update_state(req: AnnotationStateRequest):
-    return classification_service.update_state(
+async def update_state(
+    req: AnnotationStateRequest,
+    service: Annotated[ClassificationService, Depends(get_classification_service)],
+):
+    return await run_in_threadpool(
+        service.update_state,
         source_db=req.source_db,
         source_table=req.source_table,
         source_pk=req.source_pk,

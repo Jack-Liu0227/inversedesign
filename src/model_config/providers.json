@@ -1,5 +1,5 @@
 {
-  "default_provider": "ricardo",
+  "default_provider": "deepseek",
   "providers": {
     "ollama": {
       "api_key_env": "OLLAMA_API_KEY",

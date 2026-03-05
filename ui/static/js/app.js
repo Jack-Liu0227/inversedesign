@@ -53,19 +53,193 @@ function openTextModal(rawText, columnName) {
   if (!modal || !title || !body) return;
 
   title.textContent = `Column: ${columnName}`;
-  let rendered = String(rawText ?? '');
-
-  const trimmed = rendered.trim();
-  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-    try {
-      rendered = JSON.stringify(JSON.parse(trimmed), null, 2);
-    } catch (_) {
-      // keep original text when not valid JSON
-    }
-  }
+  const rendered = _formatTextForDisplay(rawText);
 
   body.textContent = rendered;
   modal.classList.add('open');
+}
+
+function _unescapeCommonText(text) {
+  return String(text || '')
+    .replace(/\\\\r\\\\n/g, '\n')
+    .replace(/\\\\n/g, '\n')
+    .replace(/\\\\t/g, '\t')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"');
+}
+
+function _decodeNestedJsonLike(value, depth = 0) {
+  if (depth > 5) return value;
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map((v) => _decodeNestedJsonLike(v, depth + 1));
+  if (typeof value === 'object') {
+    const out = {};
+    Object.entries(value).forEach(([k, v]) => {
+      out[String(k)] = _decodeNestedJsonLike(v, depth + 1);
+    });
+    return out;
+  }
+  if (typeof value !== 'string') return value;
+
+  const raw = String(value).trim();
+  if (!raw) return '';
+  const looksLikeJson = (raw.startsWith('{') && raw.endsWith('}')) || (raw.startsWith('[') && raw.endsWith(']'));
+  if (looksLikeJson) {
+    try {
+      return _decodeNestedJsonLike(JSON.parse(raw), depth + 1);
+    } catch (_) {
+      // ignore
+    }
+  }
+  const unescaped = _unescapeCommonText(raw);
+  if (unescaped !== raw) {
+    const u = unescaped.trim();
+    const uLooksLikeJson = (u.startsWith('{') && u.endsWith('}')) || (u.startsWith('[') && u.endsWith(']'));
+    if (uLooksLikeJson) {
+      try {
+        return _decodeNestedJsonLike(JSON.parse(u), depth + 1);
+      } catch (_) {
+        // ignore
+      }
+    }
+  }
+  return unescaped;
+}
+
+function _extractBalancedJson(text, startIdx) {
+  if (startIdx < 0 || startIdx >= text.length) return null;
+  const open = text[startIdx];
+  if (open !== '[' && open !== '{') return null;
+  const close = open === '[' ? ']' : '}';
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = startIdx; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === open) depth += 1;
+    if (ch === close) {
+      depth -= 1;
+      if (depth === 0) return text.slice(startIdx, i + 1);
+    }
+  }
+  return null;
+}
+
+function _prettyPromptEmbeddedJson(text) {
+  let out = String(text || '');
+  const keys = ['candidates=', 'candidate_predictions=', 'predictions=', 'features='];
+  keys.forEach((key) => {
+    const idx = out.indexOf(key);
+    if (idx < 0) return;
+    let j = idx + key.length;
+    while (j < out.length && /\s/.test(out[j])) j += 1;
+    const segment = _extractBalancedJson(out, j);
+    if (!segment) return;
+    try {
+      const parsed = _decodeNestedJsonLike(JSON.parse(segment));
+      const pretty = JSON.stringify(parsed, null, 2);
+      out = `${out.slice(0, idx)}${key}\n${pretty}${out.slice(j + segment.length)}`;
+    } catch (_) {
+      // ignore
+    }
+  });
+  return out;
+}
+
+function _formatTextForDisplay(rawText) {
+  const decoded = _decodeNestedJsonLike(rawText);
+  const normalized = _normalizeDisplayValue(decoded);
+  if (Array.isArray(normalized) || (normalized && typeof normalized === 'object')) {
+    return _renderStructuredText(normalized);
+  }
+  return String(normalized ?? '');
+}
+
+function _normalizeDisplayValue(value) {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map((v) => _normalizeDisplayValue(v));
+  if (typeof value === 'object') {
+    const out = {};
+    Object.entries(value).forEach(([k, v]) => {
+      out[String(k)] = _normalizeDisplayValue(v);
+    });
+    return out;
+  }
+  if (typeof value !== 'string') return value;
+  const unescaped = _unescapeCommonText(value);
+  return _prettyPromptEmbeddedJson(unescaped);
+}
+
+function _indent(level) {
+  return '  '.repeat(Math.max(0, level));
+}
+
+function _renderScalar(value) {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  if (typeof value === 'boolean' || typeof value === 'number') return String(value);
+  return String(value);
+}
+
+function _renderStructuredText(value, level = 0) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return `${_indent(level)}[]`;
+    const lines = [];
+    value.forEach((item) => {
+      if (Array.isArray(item) || (item && typeof item === 'object')) {
+        lines.push(`${_indent(level)}-`);
+        lines.push(_renderStructuredText(item, level + 1));
+      } else {
+        const scalar = _renderScalar(item);
+        if (scalar.includes('\n')) {
+          lines.push(`${_indent(level)}-|`);
+          scalar.split('\n').forEach((line) => lines.push(`${_indent(level + 1)}${line}`));
+        } else {
+          lines.push(`${_indent(level)}- ${scalar}`);
+        }
+      }
+    });
+    return lines.join('\n');
+  }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return `${_indent(level)}{}`;
+    const lines = [];
+    entries.forEach(([k, v]) => {
+      if (Array.isArray(v) || (v && typeof v === 'object')) {
+        lines.push(`${_indent(level)}${k}:`);
+        lines.push(_renderStructuredText(v, level + 1));
+      } else {
+        const scalar = _renderScalar(v);
+        if (scalar.includes('\n')) {
+          lines.push(`${_indent(level)}${k}: |`);
+          scalar.split('\n').forEach((line) => lines.push(`${_indent(level + 1)}${line}`));
+        } else {
+          lines.push(`${_indent(level)}${k}: ${scalar}`);
+        }
+      }
+    });
+    return lines.join('\n');
+  }
+
+  return `${_indent(level)}${_renderScalar(value)}`;
 }
 
 function openTextModalFromCell(button, columnName) {
@@ -81,6 +255,28 @@ function closeTextModal() {
   const modal = document.getElementById('text-modal');
   if (!modal) return;
   modal.classList.remove('open');
+}
+
+async function viewFullMaterialDocFromDetail(sourceName, materialType, sourceKind, workflowRunId, roundIndex) {
+  const src = String(sourceName || '').trim();
+  if (!src) {
+    alert('Missing source_name');
+    return;
+  }
+  const params = new URLSearchParams();
+  params.set('source_name', src);
+  if (String(materialType || '').trim()) params.set('material_type', String(materialType || '').trim());
+  if (String(sourceKind || '').trim()) params.set('source_kind', String(sourceKind || '').trim());
+  if (String(workflowRunId || '').trim()) params.set('workflow_run_id', String(workflowRunId || '').trim());
+  if (Number.isFinite(Number(roundIndex))) params.set('round_index', String(Number(roundIndex)));
+
+  const res = await fetch(`/api/material-data/docs/full?${params.toString()}`);
+  if (!res.ok) {
+    alert('Failed to load full document.');
+    return;
+  }
+  const data = await res.json();
+  openTextModal(data.full_text || '', `Full Doc: ${src}`);
 }
 
 async function copyModalText() {
@@ -127,6 +323,7 @@ async function handleViewerCascade(source) {
   const decisionSel = document.getElementById('viewer-decision');
   const shouldStopSel = document.getElementById('viewer-should-stop');
   const successSel = document.getElementById('viewer-success');
+  const materialTypeSel = document.getElementById('viewer-material-type');
   const traceInput = document.getElementById('viewer-trace-id');
   const sessionInput = document.getElementById('viewer-session-id');
   const runInput = document.getElementById('viewer-run-id');
@@ -137,6 +334,7 @@ async function handleViewerCascade(source) {
     trace_id: traceInput ? traceInput.value : '',
     session_id: sessionInput ? sessionInput.value : '',
     run_id: runInput ? runInput.value : '',
+    material_type: materialTypeSel ? materialTypeSel.value : '',
     step_name: stepSel ? stepSel.value : '',
     agent_name: agentSel ? agentSel.value : '',
     event_type: eventTypeSel ? eventTypeSel.value : '',
@@ -177,6 +375,7 @@ async function handleViewerCascade(source) {
         trace_id: traceInput ? traceInput.value : '',
         session_id: sessionInput ? sessionInput.value : '',
         run_id: runInput ? runInput.value : '',
+        material_type: materialTypeSel ? materialTypeSel.value : '',
         step_name: stepSel ? stepSel.value : '',
         agent_name: agentSel.value,
         event_type: eventTypeSel ? eventTypeSel.value : '',
@@ -242,14 +441,15 @@ async function handleToolTraceCascade(source) {
 
   const sessionInput = form.querySelector('input[name="session_id"]');
   const stepSel = document.getElementById('trace-step');
-  const agentSel = document.getElementById('trace-agent');
   const toolSel = document.getElementById('trace-tool');
   const successSel = form.querySelector('select[name="success"]');
+  if (source === 'step') {
+    if (toolSel) toolSel.value = '';
+  }
 
   const params = new URLSearchParams({
     session_id: sessionInput ? sessionInput.value : '',
     step_name: stepSel ? stepSel.value : '',
-    agent_name: agentSel ? agentSel.value : '',
     success: successSel ? successSel.value : '',
   });
 
@@ -258,33 +458,10 @@ async function handleToolTraceCascade(source) {
   const data = await res.json();
 
   const prevStep = stepSel ? stepSel.value : '';
-  const prevAgent = agentSel ? agentSel.value : '';
   const prevTool = toolSel ? toolSel.value : '';
 
   _setSelectOptions(stepSel, data.step_names, prevStep);
-  _setSelectOptions(agentSel, data.agent_names, prevAgent);
   _setSelectOptions(toolSel, data.tool_names, prevTool);
-
-  // Auto-select child levels for clearer drill-down behavior.
-  if (source === 'step' && agentSel && agentSel.value === '' && Array.isArray(data.agent_names) && data.agent_names.length > 0) {
-    agentSel.value = data.agent_names[0];
-    const params2 = new URLSearchParams({
-      session_id: sessionInput ? sessionInput.value : '',
-      step_name: stepSel ? stepSel.value : '',
-      agent_name: agentSel.value,
-      success: successSel ? successSel.value : '',
-    });
-    const res2 = await fetch(`/api/tool-trace/filter-options?${params2.toString()}`);
-    if (res2.ok) {
-      const data2 = await res2.json();
-      _setSelectOptions(toolSel, data2.tool_names, '');
-      if (toolSel && toolSel.value === '' && Array.isArray(data2.tool_names) && data2.tool_names.length > 0) {
-        toolSel.value = data2.tool_names[0];
-      }
-    }
-  } else if (source === 'agent' && toolSel && toolSel.value === '' && Array.isArray(data.tool_names) && data.tool_names.length > 0) {
-    toolSel.value = data.tool_names[0];
-  }
 
   if (window.htmx) {
     window.htmx.trigger(form, 'submit');
@@ -355,6 +532,60 @@ async function restoreSelected() {
   });
   if (!res.ok) {
     alert('Restore failed.');
+    return;
+  }
+  await _refreshViewerPanels();
+}
+
+function setExplorerSortOrder(order) {
+  const input = document.getElementById('explorer-sort-order');
+  if (!input) return;
+  input.value = order === 'asc' ? 'asc' : 'desc';
+  const form = input.closest('form');
+  if (form) form.submit();
+}
+
+function toggleExplorerSelectAll(checked) {
+  document.querySelectorAll('.record-check').forEach((el) => {
+    el.checked = Boolean(checked);
+  });
+}
+
+function toggleRecycleSelectAll(checked) {
+  document.querySelectorAll('.recycle-check').forEach((el) => {
+    el.checked = Boolean(checked);
+  });
+}
+
+async function purgeSelectedRecycle() {
+  const checks = Array.from(document.querySelectorAll('.recycle-check:checked'));
+  const ids = checks.map((el) => Number(el.value)).filter((x) => Number.isInteger(x) && x > 0);
+  if (ids.length === 0) {
+    alert('Please select recycle records first.');
+    return;
+  }
+  if (!confirm(`Permanently delete ${ids.length} selected recycle records?`)) return;
+  const res = await fetch('/api/records/purge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recycle_ids: ids }),
+  });
+  if (!res.ok) {
+    alert('Permanent delete failed.');
+    return;
+  }
+  await _refreshViewerPanels();
+}
+
+async function purgeAllRecycle() {
+  if (!confirm('Permanently clear all un-restored records in recycle bin?')) return;
+  const res = await fetch('/api/records/purge-all', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    alert('Clear recycle bin failed.');
     return;
   }
   await _refreshViewerPanels();
