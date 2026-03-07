@@ -86,6 +86,9 @@ def log_prompt_llm_response(
 ) -> Optional[int]:
     if not _enabled():
         return None
+    normalized_run_id = str(run_id or "").strip() or str(session_id or "").strip() or str(trace_id or "").strip()
+    if not normalized_run_id:
+        return None
 
     conn = _connect()
     try:
@@ -114,7 +117,7 @@ def log_prompt_llm_response(
                 str(workflow_name or "").strip(),
                 trace_id,
                 session_id,
-                run_id,
+                normalized_run_id,
                 step_name,
                 agent_name,
                 model_id,

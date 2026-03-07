@@ -14,6 +14,10 @@
         <input name="session_id" value="{{ query.session_id }}" placeholder="session_id (trace use same value)" />
       </label>
       <label>
+        <span>Run ID</span>
+        <input name="run_id" value="{{ query.run_id }}" placeholder="run_id" />
+      </label>
+      <label>
         <span>Step</span>
         <select id="trace-step" name="step_name" onchange="handleToolTraceCascade('step')">
           <option value="">all</option>

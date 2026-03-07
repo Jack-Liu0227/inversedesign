@@ -16,6 +16,10 @@
       "provider": "",
       "model_id": ""
     },
+    "material_doc_manager/agent": {
+      "provider": "",
+      "model_id": ""
+    },
     "material_predictor/fewshot": {
       "provider": "",
       "model_id": ""

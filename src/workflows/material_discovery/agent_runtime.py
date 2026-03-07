@@ -8,6 +8,7 @@ from typing import Any, Dict
 from agno.workflow.types import StepInput
 
 from src.common import log_agent_execution, log_agent_tool_call, log_prompt_llm_response
+from src.common.workflow_run_context import reset_workflow_run_context, set_workflow_run_context
 
 _AGENT_SOURCE_BY_NAME: Dict[str, str] = {
     "router": "src/agents/material_router_agent.py",
@@ -189,6 +190,24 @@ def _agent_session_id(step_input: StepInput) -> str:
     return "workflow-shared-session"
 
 
+def _agent_run_id(step_input: StepInput, session_id: str) -> str:
+    workflow_session = getattr(step_input, "workflow_session", None)
+    workflow_run_id = getattr(workflow_session, "current_run_id", None) or getattr(workflow_session, "run_id", None)
+    if isinstance(workflow_run_id, str) and workflow_run_id.strip():
+        return workflow_run_id.strip()
+
+    payload = getattr(step_input, "input", None)
+    resume_run_id = None
+    if isinstance(payload, dict):
+        resume_run_id = payload.get("resume_run_id")
+    else:
+        resume_run_id = getattr(payload, "resume_run_id", None)
+    if isinstance(resume_run_id, str) and resume_run_id.strip():
+        return resume_run_id.strip()
+
+    return str(session_id or "workflow-shared-session").strip()
+
+
 def is_timeout_error(exc: Exception) -> bool:
     text = str(exc or "").strip().lower()
     timeout_signals = (
@@ -210,13 +229,13 @@ def run_agent_for_json(
     include_meta: bool = False,
 ) -> Dict[str, Any]:
     session_id = _agent_session_id(step_input)
-    workflow_session = getattr(step_input, "workflow_session", None)
-    run_id = getattr(workflow_session, "current_run_id", None) or getattr(workflow_session, "run_id", None)
+    run_id = _agent_run_id(step_input, session_id)
     workflow_name = "material_discovery_workflow"
     trace_id = session_id
     step_name = _resolve_step_name(step_input, agent_name)
 
     start = time.perf_counter()
+    ctx_token = set_workflow_run_context(run_id=run_id, session_id=session_id, trace_id=trace_id)
     try:
         response = agent.run(prompt, session_id=session_id)
         latency_ms = int((time.perf_counter() - start) * 1000)
@@ -366,3 +385,5 @@ def run_agent_for_json(
             error_text=str(exc),
         )
         raise
+    finally:
+        reset_workflow_run_context(ctx_token)

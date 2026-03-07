@@ -27,6 +27,7 @@ class MaterialSampleRow:
     risk_tags: list[str]
     recommended_action: str
     judge_model: str
+    run_id: str = ""
 
 
 def _connect() -> sqlite3.Connection:
@@ -58,6 +59,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS material_samples (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             workflow_run_id TEXT NOT NULL,
+            run_id TEXT NOT NULL DEFAULT '',
             session_id TEXT NOT NULL,
             material_type TEXT NOT NULL,
             goal TEXT NOT NULL,
@@ -85,12 +87,16 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     }
     if "recommended_action" not in existing_columns:
         conn.execute("ALTER TABLE material_samples ADD COLUMN recommended_action TEXT NOT NULL DEFAULT ''")
+    if "run_id" not in existing_columns:
+        conn.execute("ALTER TABLE material_samples ADD COLUMN run_id TEXT NOT NULL DEFAULT ''")
+        conn.execute("UPDATE material_samples SET run_id = workflow_run_id WHERE run_id = ''")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_samples_valid_round ON material_samples(is_valid, round_index DESC)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_samples_goal_material ON material_samples(material_type, is_valid)"
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_samples_run_id ON material_samples(run_id, id DESC)")
     conn.execute(
         """
         CREATE VIEW IF NOT EXISTS retrieval_samples_view AS
@@ -108,14 +114,15 @@ def insert_sample_rows(rows: list[MaterialSampleRow]) -> int:
         conn.executemany(
             """
             INSERT INTO material_samples (
-                workflow_run_id, session_id, material_type, goal, round_index, candidate_index,
+                workflow_run_id, run_id, session_id, material_type, goal, round_index, candidate_index,
                 composition_json, processing_json, predicted_values_json, confidence, prediction_error,
                 is_valid, judge_score, judge_reasons_json, risk_tags_json, recommended_action, judge_model
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
                     row.workflow_run_id,
+                    str(row.run_id or row.workflow_run_id),
                     row.session_id,
                     row.material_type,
                     row.goal,

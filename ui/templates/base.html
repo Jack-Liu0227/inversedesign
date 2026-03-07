@@ -7,9 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/main.css">
+  <link rel="stylesheet" href="/static/css/main.css?v={{ range(1, 999999) | random }}">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  <script defer src="/static/js/app.js"></script>
+  <script defer src="/static/js/app.js?v={{ range(1, 999999) | random }}"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -22,6 +22,7 @@
         <a class="nav-link {% if active == 'doc_evolution' %}active{% endif %}" href="/doc-evolution">Doc Evolution</a>
         <a class="nav-link {% if active == 'material_data' %}active{% endif %}" href="/material-data">Data Preview</a>
         <a class="nav-link {% if active == 'explorer' %}active{% endif %}" href="/explorer">Explorer</a>
+        <a class="nav-link {% if active == 'record_cleanup' %}active{% endif %}" href="/record-cleanup">Record Cleanup</a>
         <a class="nav-link {% if active == 'recycle' %}active{% endif %}" href="/recycle-bin">Recycle Bin</a>
       </nav>
       {% block sidebar_extra %}{% endblock %}

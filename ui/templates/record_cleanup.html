@@ -1,0 +1,176 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<section class="page-head reveal cleanup-hero">
+  <div>
+    <div class="eyebrow">Cross-Database Admin</div>
+    <h1>Record Cleanup</h1>
+    <p>Preview and delete matched records across all databases using one identifier selector.</p>
+  </div>
+  <div class="cleanup-stat-stack" id="cleanup-stat-stack">
+    <div class="cleanup-stat">
+      <strong id="cleanup-total-matches">{{ preview.total_matches or 0 }}</strong>
+      <span>matched rows</span>
+    </div>
+    <div class="cleanup-stat">
+      <strong id="cleanup-matched-tables">{{ preview.matched_tables or 0 }}</strong>
+      <span>matched tables</span>
+    </div>
+    <div class="cleanup-stat">
+      <strong id="cleanup-scanned-tables">{{ preview.scanned_tables or 0 }}</strong>
+      <span>scanned tables</span>
+    </div>
+  </div>
+</section>
+
+<section class="cleanup-grid">
+  <article class="card reveal cleanup-control-card">
+    <div class="cleanup-panel-head cleanup-panel-head-compact">
+      <div>
+        <h3>Delete Target</h3>
+        <p>Use one logical identifier. `Workflow ID` is mapped to real table columns automatically.</p>
+      </div>
+      <span class="cleanup-badge">Search + Multi Select</span>
+    </div>
+
+    <div class="cleanup-form" autocomplete="off">
+      <label>
+        <span>Identifier Type</span>
+        <select id="cleanup-filter-col">
+          {% for item in cleanup_columns %}
+          <option value="{{ item.value }}" {% if filter_col == item.value %}selected{% endif %}>{{ item.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <div class="cleanup-picker" id="cleanup-picker">
+        <div class="cleanup-picker-head">
+          <span>Identifier Value</span>
+          <div class="cleanup-picker-inline-hint">Embedded picker, no overlay.</div>
+        </div>
+
+        <div class="cleanup-picker-panel" id="cleanup-picker-panel">
+          <div class="cleanup-picker-search-wrap">
+            <input
+              type="text"
+              id="cleanup-filter-query"
+              class="cleanup-picker-search"
+              placeholder="Search values"
+              autocomplete="off"
+              oninput="debouncedRefreshCleanupValueOptions()"
+            />
+          </div>
+          <div class="cleanup-picker-toolbar">
+            <button type="button" class="ghost-btn cleanup-mini-btn" onclick="selectAllVisibleCleanupValues()">Select Visible</button>
+            <button type="button" class="ghost-btn cleanup-mini-btn" onclick="clearCleanupSelection()">Clear</button>
+          </div>
+          <div class="cleanup-picker-list" id="cleanup-filter-value"></div>
+        </div>
+      </div>
+
+      <div class="cleanup-inline-help cleanup-inline-help-strong">
+        Search and multi-select in one panel. Changing Identifier Type reloads matching values automatically.
+      </div>
+
+      <div class="cleanup-selected-bar">
+        <span>Current Selection</span>
+        <strong id="cleanup-selected-value">{{ filter_value or 'None selected' }}</strong>
+      </div>
+
+      <div class="cleanup-chip-list" id="cleanup-selected-chips"></div>
+
+      <div class="cleanup-form-actions cleanup-form-actions-inline">
+        <button type="button" id="cleanup-preview-btn" onclick="previewCleanupSelection()" disabled>Preview Matches</button>
+        <button
+          type="button"
+          id="cleanup-delete-btn"
+          class="ghost-btn danger-ghost"
+          onclick="deleteAcrossDatabasesFromCleanup()"
+          disabled
+        >
+          Delete Across Databases
+        </button>
+      </div>
+    </div>
+
+    <div class="cleanup-tip-list">
+      <div class="cleanup-tip">
+        <strong>Hint</strong>
+        <span>Use `Primary ID` for row-level cleanup and `Workflow ID` for run-level cleanup.</span>
+      </div>
+      <div class="cleanup-tip">
+        <strong>Safety</strong>
+        <span>Delete moves records to Recycle Bin first, not hard purge.</span>
+      </div>
+    </div>
+  </article>
+
+  <article class="card reveal cleanup-preview-card">
+    <div class="cleanup-panel-head">
+      <div>
+        <h3>Match Preview</h3>
+        <p><span id="cleanup-preview-col">{{ preview.filter_col }}</span> = <code id="cleanup-preview-values">{{ preview.filter_value or 'N/A' }}</code></p>
+      </div>
+      <span class="cleanup-badge" id="cleanup-preview-badge">Ready</span>
+    </div>
+
+    <div class="cleanup-match-list" id="cleanup-preview-list">
+      {% if filter_value and preview.details %}
+        {% for item in preview.details %}
+        <article class="cleanup-match-card">
+          <header>
+            <div>
+              <strong>{{ item.db }}</strong>
+              <span>{{ item.table }}</span>
+            </div>
+            <div class="cleanup-match-total">{{ item.matched }} row(s)</div>
+          </header>
+          <div class="cleanup-match-meta">
+            <span>matched by: {{ item.matched_column }}</span>
+            <span>key: {{ item.key_col }}</span>
+            <span>value: {{ item.filter_value }}</span>
+            <span>samples: {{ item.sample_keys|join(', ') if item.sample_keys else 'none' }}</span>
+          </div>
+        </article>
+        {% endfor %}
+      {% elif filter_value %}
+        <div class="empty-state">No matched records were found for the current selection.</div>
+      {% else %}
+        <div class="empty-state">Choose an identifier type, pick one or more values, then preview matches.</div>
+      {% endif %}
+    </div>
+
+    <div class="cleanup-error-box" id="cleanup-error-box" {% if not preview.errors %}style="display:none"{% endif %}>
+      {% for err in preview.errors %}
+      <div><code>{{ err.db }}</code> / <code>{{ err.table }}</code>: {{ err.error }}</div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+
+<article class="card reveal">
+  <div class="viewer-panel-head">
+    <h3>Recent Recycle Bin</h3>
+    <div class="viewer-actions">
+      <a class="ghost-btn cleanup-link-btn" href="/recycle-bin">Open Full Recycle Bin</a>
+    </div>
+  </div>
+  <div class="recycle-page-list">
+    {% for item in recycle_items %}
+    <label class="recycle-item">
+      <input type="checkbox" class="recycle-check" value="{{ item.id }}" />
+      <span>{{ item.source_db }} / {{ item.source_table }} / {{ item.key_col }}={{ item.key_val }}</span>
+      <small>{{ item.deleted_at }}</small>
+    </label>
+    {% else %}
+    <div class="empty-state">Recycle bin is empty.</div>
+    {% endfor %}
+  </div>
+</article>
+
+<script id="cleanup-initial-state" type="application/json">{{ {
+  'filter_col': filter_col,
+  'selected_values': [filter_value] if (filter_value and filter_value in cleanup_suggestions) else [],
+  'preview': preview,
+  'suggestions': cleanup_suggestions
+} | tojson }}</script>
+{% endblock %}

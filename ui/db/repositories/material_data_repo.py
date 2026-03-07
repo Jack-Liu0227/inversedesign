@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Callable
 
 from src.fewshot.dataset_registry import get_dataset_registry
 from ui.db.connection import db_manager
+from ui.services.sort_service import auto_sort_tuple, normalize_sort_order
 from ui.services.timezone_service import beijing_range_to_utc_sql, normalize_row_datetimes
 
 
@@ -91,7 +91,7 @@ class MaterialDataRepository:
         current_page = max(1, int(page))
         current_size = max(10, min(int(page_size), 200))
         offset = (current_page - 1) * current_size
-        normalized_order = "asc" if str(sort_order).lower() == "asc" else "desc"
+        normalized_order = normalize_sort_order(sort_order, default="desc")
         target_sort_key = self._extract_target_sort_key(sort_by)
         with db_manager.connect(self.DB_KEY, readonly=True) as conn:
             total = int(
@@ -110,15 +110,17 @@ class MaterialDataRepository:
             rows = conn.execute(base_sql, params).fetchall()
             parsed_rows = [self._format_row(dict(r)) for r in rows]
             if target_sort_key:
-                parsed_rows.sort(
-                    key=lambda row: self._auto_sort_tuple(row.get("target_values_map", {}).get(target_sort_key)),
-                    reverse=(normalized_order == "desc"),
+                parsed_rows = self._sort_rows_with_nulls_last(
+                    parsed_rows,
+                    value_getter=lambda row: row.get("display_target_values_map", {}).get(target_sort_key),
+                    descending=(normalized_order == "desc"),
                 )
             else:
                 order_col = self._normalize_sort_column(sort_by)
-                parsed_rows.sort(
-                    key=lambda row: self._auto_sort_tuple(row.get(order_col)),
-                    reverse=(normalized_order == "desc"),
+                parsed_rows = self._sort_rows_with_nulls_last(
+                    parsed_rows,
+                    value_getter=lambda row: row.get(order_col),
+                    descending=(normalized_order == "desc"),
                 )
             page_rows = parsed_rows[offset : offset + current_size]
             return page_rows, total
@@ -304,28 +306,30 @@ class MaterialDataRepository:
         return ""
 
     @staticmethod
-    def _target_sort_tuple(value: Any) -> tuple[int, float, str]:
-        return MaterialDataRepository._auto_sort_tuple(value)
+    def _target_sort_tuple(value: Any) -> tuple[int, int, float, str]:
+        return auto_sort_tuple(value)
 
     @staticmethod
     def _auto_sort_tuple(value: Any) -> tuple[int, int, float, str]:
-        if value is None:
-            return (1, 2, 0.0, "")
+        return auto_sort_tuple(value)
 
-        if isinstance(value, bool):
-            return (0, 0, float(int(value)), "")
-        if isinstance(value, (int, float)):
-            return (0, 0, float(value), "")
-
-        text = str(value).strip()
-        if text == "":
-            return (1, 2, 0.0, "")
-
-        try:
-            numeric = float(Decimal(text))
-            return (0, 0, numeric, "")
-        except (InvalidOperation, ValueError):
-            return (0, 1, 0.0, text.lower())
+    @staticmethod
+    def _sort_rows_with_nulls_last(
+        rows: list[dict[str, Any]],
+        *,
+        value_getter: Callable[[dict[str, Any]], Any],
+        descending: bool,
+    ) -> list[dict[str, Any]]:
+        non_empty_rows: list[dict[str, Any]] = []
+        empty_rows: list[dict[str, Any]] = []
+        for row in rows:
+            value = value_getter(row)
+            if auto_sort_tuple(value)[0] == 1:
+                empty_rows.append(row)
+            else:
+                non_empty_rows.append(row)
+        non_empty_rows.sort(key=lambda row: auto_sort_tuple(value_getter(row)), reverse=descending)
+        return non_empty_rows + empty_rows
 
 
 material_data_repo = MaterialDataRepository()

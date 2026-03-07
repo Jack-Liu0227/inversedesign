@@ -18,6 +18,7 @@ from ui.routers.page_utils import (
     viewer_extra_filters,
 )
 from ui.services.classification_service import classification_service
+from ui.services.record_cleanup_service import CLEANUP_FILTER_OPTIONS, record_cleanup_service
 from ui.services.stats_service import stats_service
 
 
@@ -79,6 +80,7 @@ def _aggregate_doc_rows_for_full_view(rows: list[dict]) -> list[dict]:
 def _tool_trace_step_log_fallback_rows(
     *,
     session_id: str | None,
+    run_id: str | None,
     step_name: str | None,
     success_value: int | None,
     sort_order: str,
@@ -89,6 +91,8 @@ def _tool_trace_step_log_fallback_rows(
     extra_filters = {"step_name": str(step_name or "").strip()}
     if session_id:
         extra_filters["session_id"] = str(session_id).strip()
+    if run_id:
+        extra_filters["run_id"] = str(run_id).strip()
     if success_value is not None:
         extra_filters["success"] = str(int(success_value))
     rows, _, _, _ = explorer_repo.list_rows(
@@ -172,6 +176,7 @@ def explorer_page(
     success: str | None = None,
     created_from: str | None = None,
     created_to: str | None = None,
+    sort_by: str | None = None,
     sort_order: str = "desc",
     page: int = 1,
     page_size: int = 50,
@@ -218,9 +223,12 @@ def explorer_page(
         "decision": str(decision or "").strip(),
         "success": str(success or "").strip(),
     }
+    normalized_sort_by = str(sort_by or "").strip()
     if selected_db and selected_table:
         table_columns = explorer_repo.get_table_columns(selected_db, selected_table)
         col_names = [str(c.get("name")) for c in table_columns]
+        if normalized_sort_by not in col_names:
+            normalized_sort_by = "created_at" if "created_at" in col_names else ("id" if "id" in col_names else "")
         effective_extra_filters: dict[str, str] = {}
         for k, v in explorer_filters.items():
             if v and k in col_names:
@@ -241,6 +249,7 @@ def explorer_page(
             page_size=min(max(page_size, 10), 200),
             q=q,
             identifier=code,
+            sort_by=normalized_sort_by,
             sort_order=sort_order,
             extra_filters=effective_extra_filters,
             created_from=created_from,
@@ -269,7 +278,9 @@ def explorer_page(
             "created_to": created_to or "",
             "page": max(page, 1),
             "page_size": min(max(page_size, 10), 200),
+            "sort_by": normalized_sort_by,
             "sort_order": "asc" if str(sort_order).lower() == "asc" else "desc",
+            "sort_columns": col_names,
             "explorer_filter_options": explorer_filter_options,
             "explorer_filters": explorer_filters,
             "explorer_filter_columns": [c for c in explorer_filter_columns if c in col_names],
@@ -361,23 +372,20 @@ def viewer_page(
     detail_row = rows[0] if rows else {}
     recycle_items = explorer_repo.list_recycle_bin(limit=100)
     workflow_filterable = is_workflow_filterable_table(selected_db, selected_table)
-    viewer_filters = (
-        explorer_repo.viewer_filter_options(
-            db_key=selected_db,
-            table=selected_table,
-            trace_id=trace_id,
-            session_id=session_id,
-            run_id=run_id,
-            step_name=step_name,
-            agent_name=agent_name,
-            event_type=event_type,
-            decision=decision,
-            should_stop=should_stop,
-            success=success,
-        )
-        if workflow_filterable
-        else {"step_names": [], "agent_names": [], "tool_names": [], "statuses": [], "success_values": []}
+    viewer_filters = explorer_repo.viewer_filter_options(
+        db_key=selected_db,
+        table=selected_table,
+        trace_id=trace_id,
+        session_id=session_id,
+        run_id=run_id,
+        step_name=step_name,
+        agent_name=agent_name,
+        event_type=event_type,
+        decision=decision,
+        should_stop=should_stop,
+        success=success,
     )
+    filterable_columns = set(selected_col_names)
 
     return templates.TemplateResponse(
         request,
@@ -406,6 +414,17 @@ def viewer_page(
             "doc_view": "full" if str(doc_view).strip().lower() == "full" else "chunk",
             "workflow_filterable": workflow_filterable,
             "viewer_filters": viewer_filters,
+            "show_trace_filter": "trace_id" in filterable_columns,
+            "show_session_filter": "session_id" in filterable_columns,
+            "show_run_filter": "run_id" in filterable_columns,
+            "show_step_filter": "step_name" in filterable_columns,
+            "show_agent_filter": "agent_name" in filterable_columns,
+            "show_tool_filter": "tool_name" in filterable_columns,
+            "show_status_filter": "status" in filterable_columns,
+            "show_event_type_filter": "event_type" in filterable_columns,
+            "show_decision_filter": "decision" in filterable_columns,
+            "show_should_stop_filter": "should_stop" in filterable_columns,
+            "show_success_filter": "success" in filterable_columns,
             "has_material_type_column": has_material_type_column,
             "material_type_values": material_type_values,
             "filter_query": {
@@ -423,6 +442,7 @@ def viewer_page(
                 "success": success or "",
                 "doc_view": "full" if str(doc_view).strip().lower() == "full" else "chunk",
             },
+            "active_run_id": str(run_id or "").strip(),
         },
     )
 
@@ -441,10 +461,48 @@ def recycle_bin_page(request: Request):
     )
 
 
+@router.get("/record-cleanup")
+def record_cleanup_page(
+    request: Request,
+    filter_col: str | None = "id",
+    filter_value: str | None = None,
+):
+    safe_filter_col = record_cleanup_service.normalize_filter_col(filter_col)
+    safe_filter_value = str(filter_value or "").strip()
+    preview = record_cleanup_service.preview(
+        explorer_repository=explorer_repo,
+        filter_col=safe_filter_col,
+        filter_value=safe_filter_value,
+        sample_limit=6,
+    )
+    cleanup_suggestions = record_cleanup_service.suggestions(
+        explorer_repository=explorer_repo,
+        filter_col=safe_filter_col,
+        query="",
+        limit=120,
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "record_cleanup.html",
+        {
+            "title": "Record Cleanup",
+            "active": "record_cleanup",
+            "cleanup_columns": CLEANUP_FILTER_OPTIONS,
+            "filter_col": safe_filter_col,
+            "filter_value": safe_filter_value,
+            "preview": preview,
+            "cleanup_suggestions": cleanup_suggestions.get("values", []),
+            "recycle_items": explorer_repo.list_recycle_bin(limit=30),
+        },
+    )
+
+
 @router.get("/tool-trace")
 def tool_trace_page(
     request: Request,
     session_id: str | None = None,
+    run_id: str | None = None,
     step_name: str | None = None,
     tool_name: str | None = None,
     success: str | None = None,
@@ -454,11 +512,13 @@ def tool_trace_page(
     step_log_total = 0
     filters = tool_trace_repo.list_cascaded_filters(
         session_id=session_id,
+        run_id=run_id,
         step_name=step_name,
         success=success_value,
     )
     rows = tool_trace_repo.list_tool_calls(
         session_id=session_id,
+        run_id=run_id,
         step_name=step_name,
         tool_name=tool_name,
         success=success_value,
@@ -468,6 +528,7 @@ def tool_trace_page(
     if not rows and step_name and not tool_name:
         rows = _tool_trace_step_log_fallback_rows(
             session_id=session_id,
+            run_id=run_id,
             step_name=step_name,
             success_value=success_value,
             sort_order=sort_order,
@@ -492,6 +553,7 @@ def tool_trace_page(
             "step_log_total": int(step_log_total or 0),
             "query": {
                 "session_id": session_id or "",
+                "run_id": run_id or "",
                 "step_name": step_name or "",
                 "tool_name": tool_name or "",
                 "success": "" if success_value is None else str(success_value),
@@ -505,6 +567,7 @@ def tool_trace_page(
 def tool_trace_list_partial(
     request: Request,
     session_id: str | None = None,
+    run_id: str | None = None,
     step_name: str | None = None,
     tool_name: str | None = None,
     success: str | None = None,
@@ -514,6 +577,7 @@ def tool_trace_list_partial(
     step_log_total = 0
     rows = tool_trace_repo.list_tool_calls(
         session_id=session_id,
+        run_id=run_id,
         step_name=step_name,
         tool_name=tool_name,
         success=success_value,
@@ -523,6 +587,7 @@ def tool_trace_list_partial(
     if not rows and step_name and not tool_name:
         rows = _tool_trace_step_log_fallback_rows(
             session_id=session_id,
+            run_id=run_id,
             step_name=step_name,
             success_value=success_value,
             sort_order=sort_order,
@@ -760,6 +825,7 @@ def viewer_results_partial(
             "doc_view": "full" if str(doc_view).strip().lower() == "full" else "chunk",
             "selected": [],
             "sort_order": "asc" if str(sort_order).lower() == "asc" else "desc",
+            "active_run_id": str(run_id or "").strip(),
         },
     )
 
@@ -853,6 +919,7 @@ def explorer_table_partial(
     success: str | None = None,
     created_from: str | None = None,
     created_to: str | None = None,
+    sort_by: str | None = None,
     sort_order: str = "desc",
     page: int = 1,
     page_size: int = 50,
@@ -860,6 +927,9 @@ def explorer_table_partial(
     safe_table = table
     table_columns = explorer_repo.get_table_columns(db, safe_table) if safe_table else []
     col_names = [str(c.get("name")) for c in table_columns]
+    normalized_sort_by = str(sort_by or "").strip()
+    if normalized_sort_by not in col_names:
+        normalized_sort_by = "created_at" if "created_at" in col_names else ("id" if "id" in col_names else "")
     raw_filters = {
         "material_type": str(material_type or "").strip(),
         "source_kind": str(source_kind or "").strip(),
@@ -884,6 +954,7 @@ def explorer_table_partial(
             page_size=min(max(page_size, 10), 200),
             q=q,
             identifier=code,
+            sort_by=normalized_sort_by,
             sort_order=sort_order,
             extra_filters=extra_filters,
             created_from=created_from,
@@ -900,6 +971,7 @@ def explorer_table_partial(
                 page_size=min(max(page_size, 10), 200),
                 q=q,
                 identifier=code,
+                sort_by=normalized_sort_by,
                 sort_order=sort_order,
                 extra_filters=extra_filters,
                 created_from=created_from,
@@ -920,6 +992,9 @@ def explorer_table_partial(
             "q": q or "",
             "page": max(page, 1),
             "page_size": min(max(page_size, 10), 200),
+            "sort_by": normalized_sort_by,
+            "sort_order": "asc" if str(sort_order).lower() == "asc" else "desc",
         },
     )
+
 

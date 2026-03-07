@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import difflib
 import importlib.util
+import os
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -33,8 +34,18 @@ class DocEvolutionRepository:
             fn = getattr(module, "ensure_bootstrap_material_docs", None)
             if callable(fn):
                 fn()
+            candidate_backfill_fn = getattr(module, "backfill_iteration_candidate_docs", None)
+            if callable(candidate_backfill_fn):
+                candidate_backfill_fn(max_rounds=500)
             backfill_fn = getattr(module, "ensure_iteration_theory_snapshots", None)
-            if callable(backfill_fn):
+            # Avoid regenerating deleted round snapshots on every page load.
+            auto_backfill = str(os.getenv("DOC_EVOLUTION_AUTO_BACKFILL", "")).strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+            if auto_backfill and callable(backfill_fn):
                 backfill_fn(max_rounds=500)
         except Exception:
             return
@@ -99,9 +110,19 @@ class DocEvolutionRepository:
                 "chunk_count": 0,
                 "created_at": "",
             }
+        def _source_order(source_name: str) -> int:
+            text = str(source_name or "")
+            if text.endswith(".summary.md"):
+                return 0
+            if text.endswith(".theory_evolution.md"):
+                return 1
+            if text.endswith(".candidates.md"):
+                return 2
+            return 3
         ordered = sorted(
             rows,
             key=lambda x: (
+                _source_order(str(x.get("source_name") or "")),
                 str(x.get("source_name") or ""),
                 int(x.get("chunk_index") or 0),
                 int(x.get("id") or 0),
@@ -194,16 +215,15 @@ class DocEvolutionRepository:
                     "material_type": mtype,
                     "session_id": str(row.get("session_id") or ""),
                     "round_rows": defaultdict(list),
-                    "round_fallback_rows": defaultdict(list),
                 }
             rdx = int(row.get("round_index") or 0)
             if rdx > 0:
-                if source_name == f"{mtype}.theory_evolution.md":
+                if (
+                    source_name == f"{mtype}.theory_evolution.md"
+                    or source_name.endswith(".summary.md")
+                ):
                     round_indices.add(rdx)
                     by_run[run_id]["round_rows"][rdx].append(row)
-                elif source_name.endswith(".summary.md"):
-                    round_indices.add(rdx)
-                    by_run[run_id]["round_fallback_rows"][rdx].append(row)
 
         sorted_runs = sorted(by_run.values(), key=lambda x: x["run_id"], reverse=True)[: max(1, int(limit_runs))]
         selected_material_types = sorted({str(r.get("material_type") or "").strip().lower() for r in sorted_runs if r.get("material_type")})
@@ -254,9 +274,7 @@ class DocEvolutionRepository:
             bootstrap = self._aggregate_cells(bootstrap_by_type.get(mtype, []))
             rounds_payload = []
             for rdx in sorted_rounds:
-                primary_rows = row["round_rows"].get(rdx, [])
-                fallback_rows = row["round_fallback_rows"].get(rdx, [])
-                cell = self._aggregate_cells(primary_rows if primary_rows else fallback_rows)
+                cell = self._aggregate_cells(row["round_rows"].get(rdx, []))
                 rounds_payload.append({"round_index": rdx, **cell})
             round_count = len([x for x in rounds_payload if x.get("chunk_count", 0) > 0])
             output_rows.append(

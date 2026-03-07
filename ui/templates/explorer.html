@@ -29,7 +29,14 @@
     </label>
     <label>
       <span>Code Filter</span>
-      <input type="text" name="code" placeholder="id / trace_id / session_id / run_id / barcode" value="{{ code }}" />
+      <input
+        type="text"
+        id="explorer-code-filter"
+        name="code"
+        placeholder="id / trace_id / session_id / run_id / barcode"
+        value="{{ code }}"
+        oninput="autoDetectExplorerRunId()"
+      />
     </label>
     <label>
       <span>Created From</span>
@@ -39,7 +46,26 @@
       <span>Created To</span>
       <input type="datetime-local" step="60" name="created_to" value="{{ created_to }}" />
     </label>
+    {% if 'run_id' in explorer_filter_columns %}
+    <label>
+      <span>Run ID</span>
+      <input
+        type="text"
+        id="explorer-run-id"
+        name="run_id"
+        placeholder="paste run_id"
+        value="{{ explorer_filters.get('run_id', '') }}"
+        list="explorer-run-id-list"
+      />
+      <datalist id="explorer-run-id-list">
+        {% for v in explorer_filter_options.get('run_id', []) %}
+        <option value="{{ v }}"></option>
+        {% endfor %}
+      </datalist>
+    </label>
+    {% endif %}
     {% for col in explorer_filter_columns %}
+    {% if col != 'run_id' %}
     <label>
       <span>{{ col|replace('_', ' ')|title }}</span>
       <select name="{{ col }}">
@@ -49,15 +75,24 @@
         {% endfor %}
       </select>
     </label>
+    {% endif %}
     {% endfor %}
     <label>
       <span>Page Size</span>
       <input type="number" name="page_size" min="10" max="200" value="{{ page_size }}" />
     </label>
+    <label>
+      <span>Sort By</span>
+      <select name="sort_by" id="explorer-sort-by">
+        {% for col in sort_columns %}
+        <option value="{{ col }}" {% if sort_by == col %}selected{% endif %}>{{ col }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <input type="hidden" name="sort_order" id="explorer-sort-order" value="{{ sort_order }}" />
     <div class="sort-toggle">
-      <button type="button" class="ghost-btn {% if sort_order == 'desc' %}sort-active{% endif %}" onclick="setExplorerSortOrder('desc')">Latest First</button>
-      <button type="button" class="ghost-btn {% if sort_order == 'asc' %}sort-active{% endif %}" onclick="setExplorerSortOrder('asc')">Oldest First</button>
+      <button type="button" class="ghost-btn {% if sort_order == 'desc' %}sort-active{% endif %}" onclick="setExplorerSortOrder('desc')">Descending</button>
+      <button type="button" class="ghost-btn {% if sort_order == 'asc' %}sort-active{% endif %}" onclick="setExplorerSortOrder('asc')">Ascending</button>
     </div>
     <button type="submit">Apply Filters</button>
   </form>

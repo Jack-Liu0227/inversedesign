@@ -200,6 +200,9 @@ def create_workflow_run_audit(
     user_id: Optional[str],
     input_payload: Dict[str, Any],
 ) -> int:
+    normalized_run_id = str(run_id or "").strip() or str(session_id or "").strip()
+    if not normalized_run_id:
+        raise ValueError("create_workflow_run_audit requires non-empty run_id or session_id")
     conn = _connect()
     try:
         cur = conn.execute(
@@ -213,7 +216,7 @@ def create_workflow_run_audit(
                 _utc_now_iso(),
                 workflow_name,
                 session_id,
-                run_id,
+                normalized_run_id,
                 user_id,
                 _json_dumps(input_payload),
             ),
@@ -309,6 +312,9 @@ def log_agent_tool_call(
     success: bool,
     error_text: Optional[str] = None,
 ) -> Optional[int]:
+    normalized_run_id = str(run_id or "").strip() or str(session_id or "").strip() or str(trace_id or "").strip()
+    if not normalized_run_id:
+        return None
     conn = _connect()
     try:
         cur = conn.execute(
@@ -325,7 +331,7 @@ def log_agent_tool_call(
                 workflow_name,
                 trace_id,
                 session_id,
-                run_id,
+                normalized_run_id,
                 execution_id,
                 step_name,
                 agent_name,
@@ -360,6 +366,9 @@ def log_agent_execution(
     latency_ms: Optional[int],
     tool_call_count: int,
 ) -> Optional[int]:
+    normalized_run_id = str(run_id or "").strip() or str(session_id or "").strip() or str(trace_id or "").strip()
+    if not normalized_run_id:
+        return None
     conn = _connect()
     try:
         cur = conn.execute(
@@ -375,7 +384,7 @@ def log_agent_execution(
                 workflow_name,
                 trace_id,
                 session_id,
-                run_id,
+                normalized_run_id,
                 step_name,
                 agent_name,
                 agent_source,

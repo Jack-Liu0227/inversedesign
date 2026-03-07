@@ -37,6 +37,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS prediction_prompt_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at TEXT NOT NULL,
+            run_id TEXT NOT NULL DEFAULT '',
             material_type_input TEXT,
             material_type_resolved TEXT NOT NULL,
             composition_json TEXT,
@@ -50,11 +51,20 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    columns = {
+        str(row[1]).strip().lower()
+        for row in conn.execute("PRAGMA table_info(prediction_prompt_logs)").fetchall()
+        if isinstance(row, tuple) and len(row) > 1
+    }
+    if "run_id" not in columns:
+        conn.execute("ALTER TABLE prediction_prompt_logs ADD COLUMN run_id TEXT NOT NULL DEFAULT ''")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_prompt_logs_run_created ON prediction_prompt_logs(run_id, created_at DESC)")
     conn.commit()
 
 
 def log_prediction_prompt(
     *,
+    run_id: str = "",
     material_type_input: str,
     material_type_resolved: str,
     composition: Optional[Dict[str, Any]],
@@ -71,6 +81,7 @@ def log_prediction_prompt(
 
     payload = (
         datetime.now(timezone.utc).isoformat(),
+        str(run_id or "").strip(),
         material_type_input,
         material_type_resolved,
         json.dumps(composition or {}, ensure_ascii=False),
@@ -89,6 +100,7 @@ def log_prediction_prompt(
             """
             INSERT INTO prediction_prompt_logs (
                 created_at,
+                run_id,
                 material_type_input,
                 material_type_resolved,
                 composition_json,
@@ -100,7 +112,7 @@ def log_prediction_prompt(
                 predicted_values_json,
                 confidence
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             payload,
         )

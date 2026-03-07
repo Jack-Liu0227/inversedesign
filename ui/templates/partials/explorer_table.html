@@ -13,7 +13,13 @@
     <thead>
       <tr>
         <th><input type="checkbox" onchange="toggleExplorerSelectAll(this.checked)" /></th>
-        {% for col in columns %}<th>{{ col }}</th>{% endfor %}
+        {% for col in columns %}
+        <th>
+          <button type="button" class="ghost-btn" onclick="setExplorerSortBy({{ col|tojson }})">
+            {{ col }}{% if sort_by == col %} ({{ sort_order }}){% endif %}
+          </button>
+        </th>
+        {% endfor %}
         <th class="classify-col">classify</th>
       </tr>
     </thead>

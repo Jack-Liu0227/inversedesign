@@ -23,6 +23,7 @@ class ToolTraceRepository:
         self,
         *,
         session_id: str | None = None,
+        run_id: str | None = None,
         step_name: str | None = None,
         tool_name: str | None = None,
         success: int | None = None,
@@ -35,6 +36,9 @@ class ToolTraceRepository:
         if session_id:
             where.append("session_id = ?")
             params.append(session_id)
+        if run_id:
+            where.append("run_id = ?")
+            params.append(run_id)
         if step_name:
             where.append("step_name = ?")
             params.append(step_name)
@@ -113,6 +117,7 @@ class ToolTraceRepository:
         self,
         *,
         session_id: str | None = None,
+        run_id: str | None = None,
         step_name: str | None = None,
         success: int | None = None,
     ) -> dict[str, list[str]]:
@@ -122,12 +127,14 @@ class ToolTraceRepository:
                     conn=conn,
                     column="step_name",
                     session_id=session_id,
+                    run_id=run_id,
                     success=success,
                 )
                 tool_names = self._distinct_values(
                     conn=conn,
                     column="tool_name",
                     session_id=session_id,
+                    run_id=run_id,
                     step_name=step_name,
                     success=success,
                 )
@@ -153,6 +160,7 @@ class ToolTraceRepository:
         conn: sqlite3.Connection,
         column: str,
         session_id: str | None = None,
+        run_id: str | None = None,
         step_name: str | None = None,
         success: int | None = None,
     ) -> list[str]:
@@ -161,6 +169,9 @@ class ToolTraceRepository:
         if session_id:
             where.append("session_id = ?")
             params.append(session_id)
+        if run_id:
+            where.append("run_id = ?")
+            params.append(run_id)
         if step_name:
             where.append("step_name = ?")
             params.append(step_name)

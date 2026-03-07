@@ -65,6 +65,8 @@ def main() -> None:
         "human_loop": False,
         "top_k": 3,
         "max_iterations": 3,
+        # Set this to continue a previous run's round index, e.g. "a5a5a84c-...".
+        "resume_run_id": None,
         "include_debug": True,
     }
 

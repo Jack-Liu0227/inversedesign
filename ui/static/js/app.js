@@ -360,7 +360,7 @@ async function handleViewerCascade(source) {
     _setSelectOptions(decisionSel, data.decisions, prevDecision);
     _setSelectOptions(shouldStopSel, data.should_stop_values, prevShouldStop);
 
-    // Auto drill-down similar to tool-trace for faster定位
+    // Auto drill-down similar to tool-trace for faster瀹氫綅
     if (source === 'step' && agentSel && agentSel.value === '' && Array.isArray(data.agent_names) && data.agent_names.length > 0) {
       agentSel.value = data.agent_names[0];
     }
@@ -435,11 +435,20 @@ function _setSelectOptions(selectEl, values, currentValue) {
   selectEl.value = selected;
 }
 
+function _escapeHtmlAttr(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 async function handleToolTraceCascade(source) {
   const form = document.querySelector('.trace-form');
   if (!form) return;
 
   const sessionInput = form.querySelector('input[name="session_id"]');
+  const runInput = form.querySelector('input[name="run_id"]');
   const stepSel = document.getElementById('trace-step');
   const toolSel = document.getElementById('trace-tool');
   const successSel = form.querySelector('select[name="success"]');
@@ -449,6 +458,7 @@ async function handleToolTraceCascade(source) {
 
   const params = new URLSearchParams({
     session_id: sessionInput ? sessionInput.value : '',
+    run_id: runInput ? runInput.value : '',
     step_name: stepSel ? stepSel.value : '',
     success: successSel ? successSel.value : '',
   });
@@ -518,6 +528,131 @@ async function batchDeleteSelected(sourceDb, sourceTable, keyCol) {
   await _refreshViewerPanels();
 }
 
+async function deleteAcrossDatabases(defaultFilterCol, defaultFilterValue) {
+  const cleanupFilterCol = document.getElementById('cleanup-filter-col');
+  const viewerRunInput = document.getElementById('viewer-run-id');
+  const explorerRunInput = document.getElementById('explorer-run-id');
+
+  const filterCol = String(
+    defaultFilterCol
+      || (cleanupFilterCol ? cleanupFilterCol.value : '')
+      || 'id'
+  ).trim();
+
+  const selectedValues = getCleanupSelectedValues();
+  const fallbackSingleValue = String(
+    defaultFilterValue
+      || (viewerRunInput ? viewerRunInput.value : '')
+      || (explorerRunInput ? explorerRunInput.value : '')
+      || ''
+  ).trim();
+  const filterValues = selectedValues.length > 0 ? selectedValues : (fallbackSingleValue ? [fallbackSingleValue] : []);
+
+  if (!filterCol || filterValues.length === 0) {
+    alert('Please select identifier type and at least one value first.');
+    return;
+  }
+
+  let previewData = cleanupSelectionMatchesPreview(filterCol, filterValues) ? cleanupPreviewState : null;
+  if (!previewData) {
+    try {
+      previewData = await fetchCleanupPreview(filterCol, filterValues);
+      renderCleanupPreview(previewData);
+    } catch (error) {
+      alert(error?.message || 'Preview request failed.');
+      return;
+    }
+  }
+
+  const totalMatches = Number(previewData?.total_matches || 0);
+  const matchedTables = Number(previewData?.matched_tables || 0);
+  if (totalMatches <= 0) {
+    alert('No matched rows were found for the current selection. Nothing will be deleted.');
+    return;
+  }
+
+  const summary = summarizeCleanupSelection(filterValues);
+  if (!confirm(`Delete ${totalMatches} row(s) from ${matchedTables} table(s) for ${filterCol}: ${summary}?`)) return;
+
+  const deleteBtn = document.getElementById('cleanup-delete-btn');
+  if (deleteBtn) deleteBtn.disabled = true;
+  try {
+    const res = await fetch('/api/records/delete-across-databases', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filter_col: filterCol,
+        filter_values: filterValues,
+      }),
+    });
+    if (!res.ok) {
+      alert(`Delete across databases failed for ${filterCol}.`);
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    const deleted = Number(data?.deleted || 0);
+    const detailCount = Array.isArray(data?.details) ? data.details.length : 0;
+    const errorCount = Array.isArray(data?.errors) ? data.errors.length : 0;
+    alert(`Deleted ${deleted} row(s) in ${detailCount} table(s). Errors: ${errorCount}.`);
+
+    if (window.location.pathname === '/record-cleanup') {
+      cleanupSelectionState = [];
+      syncCleanupSummary();
+      renderCleanupPreview({
+        filter_col: filterCol,
+        filter_values: [],
+        total_matches: 0,
+        matched_tables: 0,
+        scanned_tables: Number(previewData?.scanned_tables || 0),
+        details: [],
+        errors: [],
+      });
+      await refreshCleanupValueOptions();
+      return;
+    }
+    await _refreshViewerPanels();
+  } finally {
+    if (deleteBtn) deleteBtn.disabled = getCleanupSelectedValues().length === 0;
+  }
+}
+
+async function deleteAcrossDatabasesFromCleanup() {
+  await deleteAcrossDatabases('', '');
+}
+
+function toggleViewerSelectAll(checked) {
+  const panel = document.getElementById('viewer-results');
+  if (!panel) return;
+  panel.querySelectorAll('.record-check').forEach((el) => {
+    el.checked = Boolean(checked);
+  });
+}
+
+function syncViewerSelectAllState() {
+  const panel = document.getElementById('viewer-results');
+  const master = document.getElementById('viewer-select-all');
+  if (!panel || !master) return;
+  const all = Array.from(panel.querySelectorAll('.record-check'));
+  const selected = all.filter((el) => el.checked);
+  if (all.length === 0) {
+    master.checked = false;
+    master.indeterminate = false;
+    return;
+  }
+  if (selected.length === 0) {
+    master.checked = false;
+    master.indeterminate = false;
+    return;
+  }
+  if (selected.length === all.length) {
+    master.checked = true;
+    master.indeterminate = false;
+    return;
+  }
+  master.checked = false;
+  master.indeterminate = true;
+}
+
 async function restoreSelected() {
   const checks = Array.from(document.querySelectorAll('.recycle-check:checked'));
   const ids = checks.map((el) => Number(el.value));
@@ -543,6 +678,27 @@ function setExplorerSortOrder(order) {
   input.value = order === 'asc' ? 'asc' : 'desc';
   const form = input.closest('form');
   if (form) form.submit();
+}
+
+function setExplorerSortBy(sortBy) {
+  const select = document.getElementById('explorer-sort-by');
+  if (!select) return;
+  select.value = String(sortBy || '');
+  const form = select.closest('form');
+  if (form) form.submit();
+}
+
+function autoDetectExplorerRunId() {
+  const codeInput = document.getElementById('explorer-code-filter');
+  const runInput = document.getElementById('explorer-run-id');
+  if (!codeInput || !runInput) return;
+  if (String(runInput.value || '').trim()) return;
+  const raw = String(codeInput.value || '').trim();
+  if (!raw) return;
+  const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (uuidLike.test(raw)) {
+    runInput.value = raw;
+  }
 }
 
 function toggleExplorerSelectAll(checked) {
@@ -600,3 +756,330 @@ document.body.addEventListener('htmx:afterRequest', (evt) => {
   const target = evt.detail.target;
   if (target) target.classList.remove('loading');
 });
+
+const cleanupFilterPlaceholders = {
+  id: 'Search primary IDs',
+  workflow_id: 'Search workflow IDs',
+  session_id: 'Search session IDs',
+  trace_id: 'Search trace IDs',
+};
+
+let cleanupValueRefreshTimer = null;
+let cleanupPreviewState = null;
+let cleanupSuggestionValues = [];
+let cleanupSelectionState = [];
+
+function cleanupSelectionMatchesPreview(filterCol, values) {
+  if (!cleanupPreviewState) return false;
+  const previewValues = Array.isArray(cleanupPreviewState.filter_values) ? cleanupPreviewState.filter_values : [];
+  if (String(cleanupPreviewState.filter_col || '') !== String(filterCol || '')) return false;
+  if (previewValues.length !== values.length) return false;
+  return previewValues.every((value, index) => value === values[index]);
+}
+
+function getCleanupSelectedValues() {
+  return [...cleanupSelectionState];
+}
+
+function summarizeCleanupSelection(values) {
+  if (!Array.isArray(values) || values.length === 0) return 'None selected';
+  if (values.length === 1) return values[0];
+  const head = values.slice(0, 2).join(', ');
+  const extra = values.length > 2 ? ` +${values.length - 2}` : '';
+  return `${head}${extra}`;
+}
+
+function syncCleanupPlaceholder() {
+  const filterColEl = document.getElementById('cleanup-filter-col');
+  const filterQueryEl = document.getElementById('cleanup-filter-query');
+  if (!filterColEl || !filterQueryEl) return;
+  const filterCol = String(filterColEl.value || 'id').trim();
+  filterQueryEl.placeholder = cleanupFilterPlaceholders[filterCol] || 'Search values';
+}
+
+function removeCleanupSelection(valueToRemove) {
+  const target = String(valueToRemove || '').trim();
+  if (!target) return;
+  cleanupSelectionState = cleanupSelectionState.filter((item) => item !== target);
+  const checkbox = document.querySelector(`#cleanup-filter-value input[type="checkbox"][value="${CSS.escape(target)}"]`);
+  if (checkbox) checkbox.checked = false;
+  syncCleanupSummary();
+}
+
+function renderCleanupSelectionChips() {
+  const chipsEl = document.getElementById('cleanup-selected-chips');
+  if (!chipsEl) return;
+  const values = getCleanupSelectedValues();
+  if (values.length === 0) {
+    chipsEl.innerHTML = '<span class="cleanup-chip cleanup-chip-empty">No values selected yet.</span>';
+    return;
+  }
+  chipsEl.innerHTML = values.map((value) => {
+    const safe = _escapeHtmlAttr(value);
+    return `
+      <button type="button" class="cleanup-chip" onclick="removeCleanupSelection('${safe}')">
+        <span>${safe}</span>
+        <span class="cleanup-chip-x">x</span>
+      </button>`;
+  }).join('');
+}
+
+function syncCleanupSummary() {
+  const selectedValues = getCleanupSelectedValues();
+  const selectedValueEl = document.getElementById('cleanup-selected-value');
+  const deleteBtn = document.getElementById('cleanup-delete-btn');
+  const previewBtn = document.getElementById('cleanup-preview-btn');
+  const summaryText = summarizeCleanupSelection(selectedValues);
+  if (selectedValueEl) selectedValueEl.textContent = summaryText;
+  if (deleteBtn) deleteBtn.disabled = selectedValues.length === 0;
+  if (previewBtn) previewBtn.disabled = selectedValues.length === 0;
+  renderCleanupSelectionChips();
+}
+
+function renderCleanupValueOptions(values) {
+  cleanupSuggestionValues = Array.isArray(values) ? values.map((item) => String(item || '').trim()).filter(Boolean) : [];
+  const listEl = document.getElementById('cleanup-filter-value');
+  if (!listEl) return;
+  const selected = new Set(cleanupSelectionState);
+  if (cleanupSuggestionValues.length === 0) {
+    listEl.innerHTML = '<div class="cleanup-picker-empty">No values found for this identifier type.</div>';
+    syncCleanupSummary();
+    return;
+  }
+  listEl.innerHTML = cleanupSuggestionValues.map((value) => {
+    const checked = selected.has(value) ? ' checked' : '';
+    const safeValue = _escapeHtmlAttr(value);
+    return `
+      <label class="cleanup-option-row">
+        <input type="checkbox" value="${safeValue}"${checked} onchange="handleCleanupValueToggle(this)" />
+        <span>${safeValue}</span>
+      </label>`;
+  }).join('');
+  syncCleanupSummary();
+}
+
+function handleCleanupValueToggle(input) {
+  if (!input) return;
+  const value = String(input.value || '').trim();
+  if (!value) return;
+  const current = new Set(cleanupSelectionState);
+  if (input.checked) current.add(value);
+  else current.delete(value);
+  cleanupSelectionState = [...current];
+  syncCleanupSummary();
+}
+
+function clearCleanupSelection() {
+  cleanupSelectionState = [];
+  document.querySelectorAll('#cleanup-filter-value input[type="checkbox"]').forEach((item) => {
+    item.checked = false;
+  });
+  syncCleanupSummary();
+}
+
+function selectAllVisibleCleanupValues() {
+  const current = new Set(cleanupSelectionState);
+  cleanupSuggestionValues.forEach((value) => current.add(value));
+  cleanupSelectionState = [...current];
+  document.querySelectorAll('#cleanup-filter-value input[type="checkbox"]').forEach((item) => {
+    item.checked = true;
+  });
+  syncCleanupSummary();
+}
+
+function renderCleanupPreview(preview) {
+  cleanupPreviewState = preview || null;
+  const totalMatchesEl = document.getElementById('cleanup-total-matches');
+  const matchedTablesEl = document.getElementById('cleanup-matched-tables');
+  const scannedTablesEl = document.getElementById('cleanup-scanned-tables');
+  const previewColEl = document.getElementById('cleanup-preview-col');
+  const previewValuesEl = document.getElementById('cleanup-preview-values');
+  const previewBadgeEl = document.getElementById('cleanup-preview-badge');
+  const previewListEl = document.getElementById('cleanup-preview-list');
+  const errorBoxEl = document.getElementById('cleanup-error-box');
+
+  const details = Array.isArray(preview?.details) ? preview.details : [];
+  const errors = Array.isArray(preview?.errors) ? preview.errors : [];
+  const values = Array.isArray(preview?.filter_values) ? preview.filter_values : [];
+
+  if (totalMatchesEl) totalMatchesEl.textContent = String(Number(preview?.total_matches || 0));
+  if (matchedTablesEl) matchedTablesEl.textContent = String(Number(preview?.matched_tables || 0));
+  if (scannedTablesEl) scannedTablesEl.textContent = String(Number(preview?.scanned_tables || 0));
+  if (previewColEl) previewColEl.textContent = String(preview?.filter_col || 'id');
+  if (previewValuesEl) previewValuesEl.textContent = values.length > 0 ? summarizeCleanupSelection(values) : 'N/A';
+  if (previewBadgeEl) previewBadgeEl.textContent = errors.length > 0 ? `${errors.length} errors` : (details.length > 0 ? 'Preview Ready' : 'No Match');
+
+  if (previewListEl) {
+    if (values.length === 0) {
+      previewListEl.innerHTML = '<div class="empty-state">Choose an identifier type, open the value picker, select one or more values, then preview the matches.</div>';
+    } else if (details.length === 0) {
+      previewListEl.innerHTML = '<div class="empty-state">No matched records were found for the current selection.</div>';
+    } else {
+      previewListEl.innerHTML = details.map((item) => {
+        const db = _escapeHtmlAttr(item?.db || '');
+        const table = _escapeHtmlAttr(item?.table || '');
+        const matched = Number(item?.matched || 0);
+        const matchedColumn = _escapeHtmlAttr(item?.matched_column || '');
+        const keyCol = _escapeHtmlAttr(item?.key_col || '');
+        const filterValue = _escapeHtmlAttr(item?.filter_value || '');
+        const samples = Array.isArray(item?.sample_keys) && item.sample_keys.length > 0
+          ? item.sample_keys.map((sample) => _escapeHtmlAttr(sample)).join(', ')
+          : 'none';
+        return `
+          <article class="cleanup-match-card">
+            <header>
+              <div>
+                <strong>${db}</strong>
+                <span>${table}</span>
+              </div>
+              <div class="cleanup-match-total">${matched} row(s)</div>
+            </header>
+            <div class="cleanup-match-meta">
+              <span>matched by: ${matchedColumn}</span>
+              <span>key: ${keyCol}</span>
+              <span>value: ${filterValue}</span>
+              <span>samples: ${samples}</span>
+            </div>
+          </article>`;
+      }).join('');
+    }
+  }
+
+  if (errorBoxEl) {
+    if (errors.length === 0) {
+      errorBoxEl.style.display = 'none';
+      errorBoxEl.innerHTML = '';
+    } else {
+      errorBoxEl.style.display = 'grid';
+      errorBoxEl.innerHTML = errors.map((err) => {
+        const db = _escapeHtmlAttr(err?.db || '');
+        const table = _escapeHtmlAttr(err?.table || '');
+        const message = _escapeHtmlAttr(err?.error || 'unknown error');
+        return `<div><code>${db}</code> / <code>${table}</code>: ${message}</div>`;
+      }).join('');
+    }
+  }
+}
+
+async function refreshCleanupValueOptions() {
+  const filterColEl = document.getElementById('cleanup-filter-col');
+  const filterQueryEl = document.getElementById('cleanup-filter-query');
+  if (!filterColEl || !filterQueryEl) return;
+
+  const filterCol = String(filterColEl.value || '').trim();
+  const query = String(filterQueryEl.value || '').trim();
+  if (!filterCol) {
+    renderCleanupValueOptions([]);
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams({
+      filter_col: filterCol,
+      q: query,
+      limit: query ? '160' : '100',
+    });
+    const res = await fetch(`/api/records/cross-db-suggestions?${params.toString()}`);
+    if (!res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    renderCleanupValueOptions(Array.isArray(data?.values) ? data.values : []);
+  } catch (_) {
+    // ignore suggestion failures
+  }
+}
+
+function debouncedRefreshCleanupValueOptions() {
+  if (cleanupValueRefreshTimer) window.clearTimeout(cleanupValueRefreshTimer);
+  cleanupValueRefreshTimer = window.setTimeout(() => {
+    refreshCleanupValueOptions();
+  }, 140);
+}
+
+function handleCleanupFilterTypeChange() {
+  const queryEl = document.getElementById('cleanup-filter-query');
+  syncCleanupPlaceholder();
+  cleanupSelectionState = [];
+  if (queryEl) {
+    queryEl.value = '';
+    queryEl.focus();
+  }
+  renderCleanupValueOptions([]);
+  renderCleanupPreview({
+    filter_col: String(document.getElementById('cleanup-filter-col')?.value || 'id'),
+    filter_values: [],
+    total_matches: 0,
+    matched_tables: 0,
+    scanned_tables: 0,
+    details: [],
+    errors: [],
+  });
+  refreshCleanupValueOptions();
+}
+
+async function fetchCleanupPreview(filterCol, filterValues) {
+  const res = await fetch('/api/records/cross-db-preview-batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filter_col: filterCol, filter_values: filterValues }),
+  });
+  if (!res.ok) throw new Error('Preview request failed.');
+  return await res.json().catch(() => ({}));
+}
+
+async function previewCleanupSelection() {
+  const filterColEl = document.getElementById('cleanup-filter-col');
+  const previewBtn = document.getElementById('cleanup-preview-btn');
+  if (!filterColEl) return;
+  const filterCol = String(filterColEl.value || 'id').trim();
+  const filterValues = getCleanupSelectedValues();
+  if (filterValues.length === 0) {
+    alert('Select at least one identifier value first.');
+    return;
+  }
+
+  if (previewBtn) previewBtn.disabled = true;
+  try {
+    const data = await fetchCleanupPreview(filterCol, filterValues);
+    renderCleanupPreview(data);
+  } catch (error) {
+    alert(error?.message || 'Preview request failed.');
+  } finally {
+    if (previewBtn) previewBtn.disabled = false;
+    syncCleanupSummary();
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const cleanupFilterCol = document.getElementById('cleanup-filter-col');
+  const initialStateEl = document.getElementById('cleanup-initial-state');
+  let initialState = null;
+  if (initialStateEl) {
+    try {
+      initialState = JSON.parse(initialStateEl.textContent || '{}');
+    } catch (_) {
+      initialState = null;
+    }
+  }
+
+  if (cleanupFilterCol) {
+    cleanupFilterCol.addEventListener('change', handleCleanupFilterTypeChange);
+    cleanupSelectionState = Array.isArray(initialState?.selected_values)
+      ? initialState.selected_values.map((item) => String(item || '').trim()).filter(Boolean)
+      : [];
+    syncCleanupPlaceholder();
+    renderCleanupValueOptions(Array.isArray(initialState?.suggestions) ? initialState.suggestions : []);
+    renderCleanupPreview(initialState?.preview || {
+      filter_col: String(cleanupFilterCol.value || 'id'),
+      filter_values: cleanupSelectionState,
+      total_matches: 0,
+      matched_tables: 0,
+      scanned_tables: 0,
+      details: [],
+      errors: [],
+    });
+    syncCleanupSummary();
+    refreshCleanupValueOptions();
+  }
+});
+
+

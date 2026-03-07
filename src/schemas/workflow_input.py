@@ -23,6 +23,7 @@ class WorkflowInput(BaseModel):
     debug_level: int | str = Field(default=1)
     include_debug: bool | str = Field(default=False)
     log_trace_id: Optional[str] = Field(default=None)
+    resume_run_id: Optional[str] = Field(default=None)
 
     @staticmethod
     def _coerce_min_int(value: Any, *, field_name: str, minimum: int, default: Optional[int]) -> Optional[int]:
@@ -70,7 +71,14 @@ class WorkflowInput(BaseModel):
                 return None
         return value
 
-    @field_validator("preference_feedback", "user_id", "log_trace_id", "recommend_count_policy", mode="before")
+    @field_validator(
+        "preference_feedback",
+        "user_id",
+        "log_trace_id",
+        "resume_run_id",
+        "recommend_count_policy",
+        mode="before",
+    )
     @classmethod
     def _coerce_optional_text(cls, value: Any) -> Optional[str]:
         if value is None:

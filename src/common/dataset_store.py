@@ -29,6 +29,7 @@ class DatasetMaterialRow:
     risk_tags: list[str]
     iteration: int = 0
     workflow_run_id: str = ""
+    run_id: str = ""
     session_id: str = ""
 
 
@@ -58,6 +59,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             judge_reasons_json TEXT NOT NULL,
             risk_tags_json TEXT NOT NULL,
             workflow_run_id TEXT NOT NULL DEFAULT '',
+            run_id TEXT NOT NULL DEFAULT '',
             session_id TEXT NOT NULL DEFAULT '',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(source, source_name, source_row_key)
@@ -78,6 +80,12 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE material_dataset_rows ADD COLUMN features_json TEXT NOT NULL DEFAULT '{}'")
     if "iteration" not in table_columns:
         conn.execute("ALTER TABLE material_dataset_rows ADD COLUMN iteration INTEGER NOT NULL DEFAULT 0")
+    if "run_id" not in table_columns:
+        conn.execute("ALTER TABLE material_dataset_rows ADD COLUMN run_id TEXT NOT NULL DEFAULT ''")
+        conn.execute("UPDATE material_dataset_rows SET run_id = workflow_run_id WHERE run_id = ''")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_material_dataset_run_id ON material_dataset_rows(run_id, created_at DESC)"
+    )
 
 
 def insert_dataset_rows(rows: list[DatasetMaterialRow]) -> int:
@@ -92,8 +100,8 @@ def insert_dataset_rows(rows: list[DatasetMaterialRow]) -> int:
                 material_type, source, source_name, source_row_key,
                 composition_json, processing_json, features_json, target_values_json, predicted_values_json, iteration,
                 is_valid, judge_score, judge_reasons_json, risk_tags_json,
-                workflow_run_id, session_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                workflow_run_id, run_id, session_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -112,6 +120,7 @@ def insert_dataset_rows(rows: list[DatasetMaterialRow]) -> int:
                     json.dumps(row.judge_reasons, ensure_ascii=False),
                     json.dumps(row.risk_tags, ensure_ascii=False),
                     row.workflow_run_id,
+                    str(row.run_id or row.workflow_run_id),
                     row.session_id,
                 )
                 for row in rows

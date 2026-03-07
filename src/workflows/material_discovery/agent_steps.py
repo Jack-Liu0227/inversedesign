@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from typing import Any
 
@@ -10,15 +11,20 @@ from src.agents.material_predictor_agent import material_predictor_agent
 from src.agents.material_recommender_agent import material_recommender_agent
 from src.agents.material_router_agent import material_router_agent
 from src.common import (
-    fetch_material_doc_context,
     fetch_round_samples_context,
-    fetch_valid_samples_context,
+    retrieve_material_doc_segments,
     next_round_index,
+)
+from src.common.prompt_formatting import (
+    format_candidates_for_predictor,
+    format_feedback_summary,
+    format_previous_round_context,
+    format_retrieved_context_blocks,
 )
 from src.schemas import AgentPredictorOutput, AgentRecommenderOutput, AgentRouterOutput
 
 from .agent_runtime import run_agent_for_json
-from .common import as_workflow_input, audit_event, run_id_from_step_input, trace_id
+from .common import as_workflow_input, audit_event, effective_workflow_run_id
 from .material_normalization import (
     dict_or_empty,
     extract_candidate_list,
@@ -84,6 +90,34 @@ def _round_feedback_summary(previous_round_context: list[dict[str, Any]]) -> dic
         "top_risk_tags_to_avoid": [x[0] for x in risk_counter.most_common(5)],
         "top_valid_examples": valid_examples[:3],
     }
+
+
+def _looks_garbled_goal(text: str) -> bool:
+    value = str(text or "")
+    return ("?" in value) or ("�" in value)
+
+
+def _canonical_objective_text(
+    *,
+    raw_goal: str,
+    material_type: str,
+    resolved_properties: list[Any],
+    target_thresholds: list[Any],
+) -> str:
+    material = str(material_type or "").strip().lower() or "unknown"
+    props = [str(x).strip().lower() for x in resolved_properties if str(x).strip()]
+    parsed_thresholds = [str(x).strip() for x in target_thresholds if str(x).strip()]
+    if parsed_thresholds:
+        return f"material={material}; targets={'; '.join(parsed_thresholds)}"
+
+    nums = re.findall(r"\d+(?:\.\d+)?", str(raw_goal or ""))
+    if len(nums) >= 2 and "ultimate_tensile_strength" in props and "elongation" in props:
+        return f"material={material}; UTS(MPa)>= {nums[0]}; El(%)>= {nums[1]}"
+    if len(nums) >= 1 and "ultimate_tensile_strength" in props:
+        return f"material={material}; UTS(MPa)>= {nums[0]}"
+    if len(nums) >= 1 and "elongation" in props:
+        return f"material={material}; El(%)>= {nums[0]}"
+    return f"material={material}; optimize {', '.join(props) if props else 'strength/ductility balance'}"
 
 
 def route_with_agent(step_input: StepInput) -> StepOutput:
@@ -171,19 +205,14 @@ def recommend_with_agent(step_input: StepInput) -> StepOutput:
     routed_output = step_input.previous_step_outputs.get("Router Agent")
     routed = dict_or_empty(getattr(routed_output, "content", None))
     resolved_material_type = str(routed.get("resolved_material_type", "")).strip().lower()
+    resolved_properties = list_or_empty(routed.get("resolved_properties", []))
+    target_thresholds = list_or_empty(routed.get("target_thresholds", []))
     if not resolved_material_type:
         raise ValueError("Missing resolved_material_type from Router Agent step")
 
-    workflow_run_id = run_id_from_step_input(step_input) or trace_id(step_input, request)
+    workflow_run_id = effective_workflow_run_id(step_input, request)
     current_round = next_round_index(str(workflow_run_id))
     previous_round = max(0, int(current_round) - 1)
-    valid_context = fetch_valid_samples_context(material_type=resolved_material_type, limit=12)
-    doc_context = fetch_material_doc_context(
-        material_type=resolved_material_type,
-        limit=8,
-        workflow_run_id=str(workflow_run_id),
-        before_round_index=int(current_round),
-    )
     previous_round_context = (
         fetch_round_samples_context(
             workflow_run_id=str(workflow_run_id),
@@ -196,32 +225,58 @@ def recommend_with_agent(step_input: StepInput) -> StepOutput:
     )
     top_n = _adaptive_recommend_count(previous_round_context)
     previous_round_feedback = _round_feedback_summary(previous_round_context)
-    rag_context = json.dumps(valid_context, ensure_ascii=False)
-    doc_context_json = json.dumps(doc_context, ensure_ascii=False)
-    prev_round_context_json = json.dumps(previous_round_context, ensure_ascii=False)
-    previous_round_feedback_json = json.dumps(previous_round_feedback, ensure_ascii=False)
+    retrieval_query = (
+        f"goal={request.goal}\n"
+        f"preference_feedback={request.preference_feedback or ''}\n"
+        f"previous_round_feedback_summary={json.dumps(previous_round_feedback, ensure_ascii=False)}"
+    )
+    retrieved_doc_segments = retrieve_material_doc_segments(
+        material_type=resolved_material_type,
+        query_text=retrieval_query,
+        workflow_run_id=str(workflow_run_id),
+        before_round_index=int(current_round),
+        top_k=8,
+        fetch_k=30,
+    )
+    retrieved_context_block = format_retrieved_context_blocks(retrieved_doc_segments, max_items=8, max_content_chars=320)
+    prev_round_context_block = format_previous_round_context(previous_round_context, max_items=6, max_process_chars=220)
+    previous_round_feedback_block = format_feedback_summary(previous_round_feedback)
+    canonical_objective = _canonical_objective_text(
+        raw_goal=request.goal,
+        material_type=resolved_material_type,
+        resolved_properties=resolved_properties,
+        target_thresholds=target_thresholds,
+    )
+    objective_line = (
+        f"Design objective: {canonical_objective}"
+        if _looks_garbled_goal(request.goal)
+        else f"Design objective: {request.goal}"
+    )
     prompt = (
         "Recommend candidate alloys.\n"
         "Return ONLY valid JSON with keys: candidates.\n"
         "Each candidate must include composition, processing, score, reason, expected_tradeoff.\n"
+        f"Generate exactly {top_n} candidates.\n"
+        "Do not ask clarifying questions and do not request additional user input.\n"
+        "If any field appears ambiguous or partially truncated, infer conservatively from Design objective and proceed.\n"
         "processing must contain exactly one key: 'heat treatment method'.\n"
         "The value of 'heat treatment method' must be one complete process route sentence.\n"
         "Do not output thermo_mechanical or other processing sub-keys.\n"
-        f"goal={request.goal}\n"
-        f"material_type={resolved_material_type}\n"
-        f"current_round={current_round}\n"
-        f"previous_round={previous_round}\n"
+        f"Material family: {resolved_material_type}\n"
+        f"{objective_line}\n"
+        f"Canonical objective: {canonical_objective}\n"
         "When previous_round_context is not empty, use it as hard feedback from previous iteration outcomes.\n"
         "You must consider previous round composition, processing, and predicted_values before proposing new candidates.\n"
-        "When valid retrieval samples are empty, use bootstrap_doc_context as first-round domain knowledge.\n"
+        "Use retrieved context below as the only retrieval context source beyond previous round feedback.\n"
         "Use previous_round_feedback_summary to avoid repeated failure modes and preserve high-score valid patterns.\n"
         "Prioritize avoiding top_risk_tags_to_avoid and top_invalid_reasons from the previous round.\n"
-        f"top_n={top_n}\n"
-        f"rag_context={rag_context}\n"
-        f"bootstrap_doc_context={doc_context_json}\n"
-        f"previous_round_context={prev_round_context_json}\n"
-        f"previous_round_feedback_summary={previous_round_feedback_json}\n"
-        f"preference_feedback={request.preference_feedback or ''}"
+        f"Preference feedback: {request.preference_feedback or 'None'}\n\n"
+        "Retrieved context:\n"
+        f"{retrieved_context_block or 'No retrieved context.'}\n\n"
+        "Previous round context:\n"
+        f"{prev_round_context_block}\n\n"
+        "Previous round feedback summary:\n"
+        f"{previous_round_feedback_block}"
     )
     rec = run_agent_for_json(
         material_recommender_agent,
@@ -296,13 +351,9 @@ def _map_predictor_items(batch_items: list[Any], jobs: list[dict[str, Any]]) -> 
 
 
 def predict_with_agent(step_input: StepInput) -> StepOutput:
-    request = as_workflow_input(step_input.input)
-    routed_output = step_input.previous_step_outputs.get("Router Agent")
     rec_output = step_input.previous_step_outputs.get("Recommender Agent")
-    routed = dict_or_empty(getattr(routed_output, "content", None))
     recommendation = dict_or_empty(getattr(rec_output, "content", None))
 
-    resolved_material_type = str(routed.get("resolved_material_type", "")).strip().lower()
     candidates = [c for c in list_or_empty(recommendation.get("candidates", [])) if isinstance(c, dict)]
     jobs, invalid_candidate_predictions = _build_predict_jobs(candidates)
     if not jobs:
@@ -314,15 +365,13 @@ def predict_with_agent(step_input: StepInput) -> StepOutput:
         return StepOutput(content=payload)
 
     input_candidates = [{"composition": job["composition"], "processing": job["processing"]} for job in jobs]
+    candidate_blocks = format_candidates_for_predictor(input_candidates, max_process_chars=260)
     prompt = (
         "Predict properties for all recommended candidates.\n"
-        "First call predict_material_properties_batch with candidates.\n"
+        "You must call predict_material_properties_batch with the candidates below.\n"
         "Return ONLY valid JSON with keys: predictions.\n"
-        f"material_type={resolved_material_type}\n"
-        f"goal={request.goal}\n"
-        f"top_k={request.top_k or 3}\n"
-        f"max_workers={min(3, max(1, len(input_candidates)))}\n"
-        f"candidates={json.dumps(input_candidates, ensure_ascii=False)}"
+        "Candidates:\n"
+        f"{candidate_blocks or 'No candidates.'}"
     )
     batch_result = run_agent_for_json(
         material_predictor_agent,

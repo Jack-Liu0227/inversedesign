@@ -140,6 +140,9 @@ def log_workflow_event(
 ) -> Optional[int]:
     if not _enabled():
         return None
+    normalized_run_id = str(run_id or "").strip() or str(session_id or "").strip() or str(trace_id or "").strip()
+    if not normalized_run_id:
+        return None
     conn = _connect()
     try:
         cursor = conn.execute(
@@ -155,7 +158,7 @@ def log_workflow_event(
                 trace_id,
                 workflow_name,
                 session_id,
-                run_id,
+                normalized_run_id,
                 user_id,
                 step_name,
                 event_type,
@@ -205,6 +208,9 @@ def log_workflow_step(
 ) -> Optional[int]:
     if not _enabled():
         return None
+    normalized_run_id = str(run_id or "").strip() or str(session_id or "").strip() or str(trace_id or "").strip()
+    if not normalized_run_id:
+        return None
     conn = _connect()
     try:
         cursor = conn.execute(
@@ -220,7 +226,7 @@ def log_workflow_step(
                 trace_id,
                 workflow_name,
                 session_id,
-                run_id,
+                normalized_run_id,
                 user_id,
                 step_name,
                 status,

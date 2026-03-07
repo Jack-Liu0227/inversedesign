@@ -42,19 +42,25 @@
         </select>
       </label>
       {% endif %}
-      {% if workflow_filterable %}
+      {% if show_trace_filter %}
       <label>
         <span>Trace ID</span>
         <input name="trace_id" id="viewer-trace-id" value="{{ filter_query.trace_id }}" placeholder="trace id" onchange="handleViewerCascade('trace')" />
       </label>
+      {% endif %}
+      {% if show_session_filter %}
       <label>
         <span>Session ID</span>
         <input name="session_id" id="viewer-session-id" value="{{ filter_query.session_id }}" placeholder="session id" onchange="handleViewerCascade('session')" />
       </label>
+      {% endif %}
+      {% if show_run_filter %}
       <label>
         <span>Run ID</span>
         <input name="run_id" id="viewer-run-id" value="{{ filter_query.run_id }}" placeholder="run id" onchange="handleViewerCascade('run')" />
       </label>
+      {% endif %}
+      {% if show_step_filter %}
       <label>
         <span>Step</span>
         <select name="step_name" id="viewer-step" onchange="handleViewerCascade('step')">
@@ -64,6 +70,8 @@
           {% endfor %}
         </select>
       </label>
+      {% endif %}
+      {% if show_agent_filter %}
       <label>
         <span>Agent</span>
         <select name="agent_name" id="viewer-agent" onchange="handleViewerCascade('agent')">
@@ -73,7 +81,8 @@
           {% endfor %}
         </select>
       </label>
-      {% if workflow_filterable %}
+      {% endif %}
+      {% if show_tool_filter %}
       <label>
         <span>Tool</span>
         <select name="tool_name" id="viewer-tool" onchange="handleViewerCascade('tool')">
@@ -84,7 +93,7 @@
         </select>
       </label>
       {% endif %}
-      {% if selected_table == 'workflow_step_logs' %}
+      {% if show_status_filter %}
       <label>
         <span>Status</span>
         <select name="status" id="viewer-status" onchange="handleViewerCascade('status')">
@@ -95,7 +104,7 @@
         </select>
       </label>
       {% endif %}
-      {% if selected_table == 'workflow_io_logs' %}
+      {% if show_event_type_filter %}
       <label>
         <span>Event Type</span>
         <select name="event_type" id="viewer-event-type" onchange="handleViewerCascade('event_type')">
@@ -106,7 +115,7 @@
         </select>
       </label>
       {% endif %}
-      {% if selected_table == 'workflow_run_audit' %}
+      {% if show_decision_filter %}
       <label>
         <span>Decision</span>
         <select name="decision" id="viewer-decision" onchange="handleViewerCascade('decision')">
@@ -116,6 +125,8 @@
           {% endfor %}
         </select>
       </label>
+      {% endif %}
+      {% if show_should_stop_filter %}
       <label>
         <span>Should Stop</span>
         <select name="should_stop" id="viewer-should-stop" onchange="handleViewerCascade('should_stop')">
@@ -126,6 +137,7 @@
         </select>
       </label>
       {% endif %}
+      {% if show_success_filter %}
       <label>
         <span>Success</span>
         <select name="success" id="viewer-success" onchange="handleViewerCascade('success')">

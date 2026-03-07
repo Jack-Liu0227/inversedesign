@@ -10,6 +10,7 @@ from agno.db.sqlite import SqliteDb
 from agno.tools import tool
 
 from src.common import MATERIAL_AGENT_SHARED_DB_ID, MATERIAL_PREDICTOR_AGENT_DB, build_model, log_prediction_prompt
+from src.common.workflow_run_context import get_current_run_id
 from src.fewshot import FewshotPredictor, resolve_material_type_input, supported_material_type_hint
 from src.fewshot.parsing import ResultParser
 from src.schemas import AgentPredictorOutput, CandidatePrediction
@@ -181,7 +182,9 @@ def predict_material_properties(
             raise ValueError(f"{exc} {hint}") from exc
         raise
 
+    current_run_id = get_current_run_id()
     _ = log_prediction_prompt(
+        run_id=current_run_id,
         material_type_input=material_type,
         material_type_resolved=resolved_material_type,
         composition=composition,
@@ -229,6 +232,7 @@ def predict_material_properties_batch(
         goal=goal,
         material_type=material_type,
     )
+    current_run_id = get_current_run_id()
 
     workers = max(1, min(int(max_workers or 1), 8, len(candidates)))
 
@@ -253,6 +257,7 @@ def predict_material_properties_batch(
             return _prediction_error_result(index=index, error=str(exc))
 
         _ = log_prediction_prompt(
+            run_id=current_run_id,
             material_type_input=material_type,
             material_type_resolved=resolved_material_type,
             composition=composition,
