@@ -29,7 +29,7 @@ def to_record_card(row: dict, columns: list[str], record_key: str, table: str) -
     preview = humanize_escaped_text(preview_raw).replace("\n", " ")[:180]
 
     label_col = ""
-    for candidate in ("id", "workflow_run_id", "run_id", "session_id", "trace_id", "created_at", "name"):
+    for candidate in ("id", "workflow_run_id", "session_id", "trace_id", "created_at", "name"):
         if candidate in row:
             label_col = candidate
             break
@@ -257,7 +257,7 @@ def viewer_extra_filters(
     *,
     trace_id: str | None = None,
     session_id: str | None = None,
-    run_id: str | None = None,
+    workflow_run_id: str | None = None,
     material_type: str | None = None,
     step_name: str | None = None,
     agent_name: str | None = None,
@@ -271,7 +271,7 @@ def viewer_extra_filters(
     return {
         "trace_id": str(trace_id or "").strip(),
         "session_id": str(session_id or "").strip(),
-        "run_id": str(run_id or "").strip(),
+        "workflow_run_id": str(workflow_run_id or "").strip(),
         "material_type": str(material_type or "").strip(),
         "step_name": str(step_name or "").strip(),
         "agent_name": str(agent_name or "").strip(),

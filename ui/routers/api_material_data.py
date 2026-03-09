@@ -36,6 +36,15 @@ def _parse_id_csv(raw: str) -> list[int]:
     return values
 
 
+def _parse_text_csv(raw: str) -> list[str]:
+    values: list[str] = []
+    for token in str(raw or "").split(","):
+        text = token.strip()
+        if text and text not in values:
+            values.append(text)
+    return values
+
+
 def _load_doc_store_module():
     module_path = Path(__file__).resolve().parents[2] / "src" / "common" / "material_doc_store.py"
     spec = importlib.util.spec_from_file_location("material_doc_store_ui", str(module_path))
@@ -62,6 +71,8 @@ async def list_rows(
     material_type: str = "",
     source: str = "",
     q: str = "",
+    workflow_run_id: str = "",
+    run_note: str = "",
     created_from: str = "",
     created_to: str = "",
     valid_only: bool = False,
@@ -76,6 +87,8 @@ async def list_rows(
         material_type=material_type,
         source=source,
         q=q,
+        workflow_run_id=workflow_run_id,
+        run_note=run_note,
         created_from=created_from,
         created_to=created_to,
         valid_only=valid_only,
@@ -90,6 +103,47 @@ async def list_rows(
         "sort_by": sort_by,
         "sort_order": "asc" if str(sort_order).lower() == "asc" else "desc",
     }
+
+
+@router.get("/analytics")
+async def material_data_analytics(
+    material_type: str = "",
+    source: str = "",
+    q: str = "",
+    workflow_run_id: str = "",
+    run_note: str = "",
+    created_from: str = "",
+    created_to: str = "",
+    valid_only: bool = False,
+    properties: str = "",
+    pareto_x: str = "",
+    pareto_y: str = "",
+    material_data_repository: MaterialDataRepository = Depends(get_material_data_repository),
+) -> dict[str, object]:
+    result = await run_in_threadpool(
+        material_data_repository.build_analytics,
+        material_type=material_type,
+        source=source,
+        q=q,
+        workflow_run_id=workflow_run_id,
+        run_note=run_note,
+        created_from=created_from,
+        created_to=created_to,
+        valid_only=valid_only,
+        properties=_parse_text_csv(properties),
+        pareto_x=str(pareto_x or "").strip(),
+        pareto_y=str(pareto_y or "").strip(),
+)
+    return {"ok": True, **result}
+
+
+@router.get("/runs")
+async def list_recent_runs(
+    limit: int = 100,
+    material_data_repository: MaterialDataRepository = Depends(get_material_data_repository),
+) -> dict[str, object]:
+    rows = await run_in_threadpool(material_data_repository.list_recent_runs, max(1, min(int(limit), 500)))
+    return {"ok": True, "rows": rows}
 
 
 @router.post("/batch-delete")

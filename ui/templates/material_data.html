@@ -26,6 +26,38 @@
       </select>
     </label>
     <label>
+      <span>Workflow Run ID</span>
+      <input
+        type="text"
+        name="workflow_run_id"
+        value="{{ query.workflow_run_id }}"
+        list="workflow-run-id-list"
+        placeholder="filter workflow_run_id"
+        oninput="debouncedMaterialSubmit()"
+      >
+      <datalist id="workflow-run-id-list">
+        {% for rid in workflow_run_ids %}
+        <option value="{{ rid }}"></option>
+        {% endfor %}
+      </datalist>
+    </label>
+    <label>
+      <span>Run Note</span>
+      <input
+        type="text"
+        name="run_note"
+        value="{{ query.run_note }}"
+        list="run-note-list"
+        placeholder="filter run_note"
+        oninput="debouncedMaterialSubmit()"
+      >
+      <datalist id="run-note-list">
+        {% for note in run_notes %}
+        <option value="{{ note }}"></option>
+        {% endfor %}
+      </datalist>
+    </label>
+    <label>
       <span>Keyword</span>
       <input
         type="text"
@@ -64,6 +96,9 @@
     <input type="hidden" name="page" value="{{ query.page }}">
     <input type="hidden" name="sort_by" id="sort-by-input" value="{{ query.sort_by }}">
     <input type="hidden" name="sort_order" id="sort-order-input" value="{{ query.sort_order }}">
+    <input type="hidden" name="trend_props" id="trend-props-input" value="{{ query.trend_props }}">
+    <input type="hidden" name="pareto_x" id="pareto-x-input" value="{{ query.pareto_x }}">
+    <input type="hidden" name="pareto_y" id="pareto-y-input" value="{{ query.pareto_y }}">
   </form>
   <div class="meta-pills" style="margin-top: 10px;">
     <label>
@@ -79,6 +114,99 @@
   </div>
 </article>
 
+<article class="card reveal material-viz-card">
+  <div class="material-viz-grid">
+    <section class="viz-panel">
+      <div class="viz-panel-head">
+        <div>
+          <h3>Prediction Trend by Iteration</h3>
+          <p>Overlay one or more properties from the filtered rows. Multi-property mode is normalized for direct comparison.</p>
+        </div>
+        <button class="ghost-btn" type="button" onclick="refreshMaterialAnalytics()">Refresh charts</button>
+      </div>
+      <div class="viz-controls viz-controls-inline">
+        <label>
+          <span>Trend display</span>
+          <select id="trend-display-mode" onchange="renderTrendChart(MATERIAL_ANALYTICS_STATE.trend || { series: [], iterations: [] }, Number(MATERIAL_ANALYTICS_STATE.rowCount || 0))">
+            <option value="auto">auto</option>
+            <option value="dual-axis">dual-axis absolute</option>
+            <option value="normalized">normalized overlay</option>
+          </select>
+        </label>
+        <label>
+          <span>Trend mark</span>
+          <select id="trend-mark-mode" onchange="renderTrendChart(MATERIAL_ANALYTICS_STATE.trend || { series: [], iterations: [] }, Number(MATERIAL_ANALYTICS_STATE.rowCount || 0))">
+            <option value="all">all candidates</option>
+            <option value="best">best only</option>
+          </select>
+        </label>
+      </div>
+      <div class="viz-controls" id="trend-property-controls"></div>
+      <div class="viz-meta" id="trend-chart-meta">Loading filtered prediction trend...</div>
+      <div class="viz-chart-shell">
+        <svg id="trend-chart" class="viz-svg" viewBox="0 0 760 360" role="img" aria-label="Prediction trend chart"></svg>
+      </div>
+    </section>
+    <section class="viz-panel">
+      <div class="viz-panel-head">
+        <div>
+          <h3>Pareto Frontier Evolution</h3>
+          <p>Inspect the cumulative frontier up to a chosen iteration, with non-frontier points retained as context.</p>
+        </div>
+      </div>
+      <div class="viz-controls viz-controls-inline">
+        <label>
+          <span>X property</span>
+          <select id="pareto-x-select" onchange="handleParetoAxisChange()"></select>
+        </label>
+        <label>
+          <span>Y property</span>
+          <select id="pareto-y-select" onchange="handleParetoAxisChange()"></select>
+        </label>
+      </div>
+      <div class="viz-slider-row">
+        <label class="viz-slider-label" for="pareto-iteration-range">Visible up to iteration</label>
+        <input id="pareto-iteration-range" type="range" min="0" max="0" value="0" step="1" oninput="handleParetoIterationChange(this.value)">
+        <span class="viz-slider-value" id="pareto-iteration-label">-</span>
+      </div>
+      <div class="viz-colorbar" id="pareto-colorbar"></div>
+      <div class="viz-meta" id="pareto-chart-meta">Loading Pareto frontier...</div>
+      <div class="viz-chart-shell">
+        <svg id="pareto-chart" class="viz-svg" viewBox="0 0 760 360" role="img" aria-label="Pareto frontier chart"></svg>
+      </div>
+    </section>
+  </div>
+</article>
+
+<article class="card reveal">
+  <div class="table-head">
+    <h3>Historical Runs</h3>
+    <span class="muted">Select run ids to mount in future workflow requests.</span>
+  </div>
+  <div style="display:grid; gap:12px;">
+    <div id="mounted-run-selection" style="display:grid; gap:8px;">
+      {% for item in recent_runs %}
+      <label style="display:grid; grid-template-columns: 20px 1fr; gap:10px; align-items:start; padding:10px 12px; border:1px solid rgba(125,108,88,0.18); border-radius:12px;">
+        <input type="checkbox" class="mounted-run-check" value="{{ item.workflow_run_id }}" onchange="syncMountedRunIdsOutput()">
+        <span>
+          <strong>{{ item.workflow_run_id }}</strong>
+          <span class="muted">type={{ item.material_type or 'unknown' }} | note={{ item.run_note or 'none' }} | created={{ item.created_at }}</span>
+        </span>
+      </label>
+      {% else %}
+      <div class="viz-empty">No recorded workflow runs yet.</div>
+      {% endfor %}
+    </div>
+    <label>
+      <span>mounted_workflow_run_ids</span>
+      <textarea id="mounted-run-ids-output" rows="3" readonly placeholder="Select historical runs to build a comma-separated mounted_workflow_run_ids value."></textarea>
+    </label>
+    <div>
+      <button class="ghost-btn" type="button" onclick="copyMountedRunIds()">Copy mounted_workflow_run_ids</button>
+    </div>
+  </div>
+</article>
+
 <article class="card reveal">
   <div class="table-wrap">
     <table class="table explorer-table">
@@ -88,6 +216,8 @@
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('id')">id{% if query.sort_by == 'id' %} ({{ query.sort_order }}){% endif %}</button></th>
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('material_type')">type{% if query.sort_by == 'material_type' %} ({{ query.sort_order }}){% endif %}</button></th>
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('source')">source{% if query.sort_by == 'source' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('workflow_run_id')">workflow_run_id{% if query.sort_by == 'workflow_run_id' %} ({{ query.sort_order }}){% endif %}</button></th>
+          <th><button class="ghost-btn" type="button" onclick="setMaterialSort('run_note')">run_note{% if query.sort_by == 'run_note' %} ({{ query.sort_order }}){% endif %}</button></th>
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('source_name')">source_name{% if query.sort_by == 'source_name' %} ({{ query.sort_order }}){% endif %}</button></th>
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('source_row_key')">row_key{% if query.sort_by == 'source_row_key' %} ({{ query.sort_order }}){% endif %}</button></th>
           <th><button class="ghost-btn" type="button" onclick="setMaterialSort('iteration')">iteration{% if query.sort_by == 'iteration' %} ({{ query.sort_order }}){% endif %}</button></th>
@@ -117,6 +247,8 @@
           <td>{{ r.id }}</td>
           <td>{{ r.material_type }}</td>
           <td>{{ r.source }}</td>
+          <td>{{ r.workflow_run_id }}</td>
+          <td>{{ r.run_note }}</td>
           <td>{{ r.source_name }}</td>
           <td>{{ r.source_row_key }}</td>
           <td>{{ r.iteration }}</td>
@@ -211,6 +343,16 @@
 </article>
 
 <script>
+const MATERIAL_ANALYTICS_STATE = {
+  availableProperties: [],
+  selectedProperties: [],
+  objectiveMap: {},
+  pareto: null,
+  trend: null,
+  rowCount: 0,
+};
+let MATERIAL_VIZ_ID_SEQ = 0;
+
 function toggleValidOnly(checked) {
   const form = document.getElementById('material-filter-form');
   if (!form) return;
@@ -269,6 +411,7 @@ function setMaterialSort(sortBy) {
 function submitMaterialFilters() {
   const form = document.getElementById('material-filter-form');
   if (!form) return;
+  syncAnalyticsQueryInputs();
   const validInput = document.getElementById('valid-only');
   const hasValid = form.querySelector('input[name="valid_only"]');
   if (!hasValid && validInput) {
@@ -361,5 +504,750 @@ async function batchDeleteSelectedRows() {
   alert(`Deleted rows: ${data.deleted}`);
   submitMaterialFilters();
 }
+
+function syncAnalyticsQueryInputs() {
+  const selectedProps = Array.from(document.querySelectorAll('.trend-property-option input:checked'))
+    .map((el) => el.value)
+    .filter(Boolean);
+  const trendPropsInput = document.getElementById('trend-props-input');
+  if (trendPropsInput) {
+    trendPropsInput.value = selectedProps.join(',');
+  }
+  const paretoXInput = document.getElementById('pareto-x-input');
+  const paretoYInput = document.getElementById('pareto-y-input');
+  const paretoXSelect = document.getElementById('pareto-x-select');
+  const paretoYSelect = document.getElementById('pareto-y-select');
+  if (paretoXInput && paretoXSelect) paretoXInput.value = paretoXSelect.value || '';
+  if (paretoYInput && paretoYSelect) paretoYInput.value = paretoYSelect.value || '';
+}
+
+function buildMaterialAnalyticsUrl() {
+  const form = document.getElementById('material-filter-form');
+  const params = new URLSearchParams();
+  if (form) {
+    const formData = new FormData(form);
+    for (const [key, value] of formData.entries()) {
+      if (['page', 'page_size', 'sort_by', 'sort_order', 'trend_props', 'pareto_x', 'pareto_y'].includes(key)) continue;
+      const text = String(value || '').trim();
+      if (text) params.set(key, text);
+    }
+  }
+  const selectedProps = Array.from(document.querySelectorAll('.trend-property-option input:checked'))
+    .map((el) => el.value)
+    .filter(Boolean);
+  const fallbackSelected = (document.getElementById('trend-props-input')?.value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const effectiveProps = selectedProps.length > 0 ? selectedProps : fallbackSelected;
+  if (effectiveProps.length > 0) params.set('properties', effectiveProps.join(','));
+  const paretoX = document.getElementById('pareto-x-select')?.value || document.getElementById('pareto-x-input')?.value || '';
+  const paretoY = document.getElementById('pareto-y-select')?.value || document.getElementById('pareto-y-input')?.value || '';
+  if (paretoX) params.set('pareto_x', paretoX);
+  if (paretoY) params.set('pareto_y', paretoY);
+  return `/api/material-data/analytics?${params.toString()}`;
+}
+
+async function refreshMaterialAnalytics() {
+  syncAnalyticsQueryInputs();
+  const trendMeta = document.getElementById('trend-chart-meta');
+  const paretoMeta = document.getElementById('pareto-chart-meta');
+  if (trendMeta) trendMeta.textContent = 'Loading filtered prediction trend...';
+  if (paretoMeta) paretoMeta.textContent = 'Loading Pareto frontier...';
+  const res = await fetch(buildMaterialAnalyticsUrl());
+  if (!res.ok) {
+    if (trendMeta) trendMeta.textContent = 'Failed to load prediction trend.';
+    if (paretoMeta) paretoMeta.textContent = 'Failed to load Pareto frontier.';
+    return;
+  }
+  const payload = await res.json();
+  renderMaterialAnalytics(payload);
+}
+
+function renderMaterialAnalytics(payload) {
+  const data = payload || {};
+  MATERIAL_ANALYTICS_STATE.availableProperties = Array.isArray(data.available_properties) ? data.available_properties : [];
+  MATERIAL_ANALYTICS_STATE.selectedProperties = Array.isArray(data.selected_properties) ? data.selected_properties : [];
+  MATERIAL_ANALYTICS_STATE.objectiveMap = data.objective_map || {};
+  MATERIAL_ANALYTICS_STATE.pareto = data.pareto || null;
+  MATERIAL_ANALYTICS_STATE.trend = data.trend || { series: [], iterations: [] };
+  MATERIAL_ANALYTICS_STATE.rowCount = Number(data.row_count || 0);
+  renderTrendPropertyControls();
+  syncTrendDisplayMode();
+  renderTrendChart(MATERIAL_ANALYTICS_STATE.trend, MATERIAL_ANALYTICS_STATE.rowCount);
+  renderParetoControls(data.pareto || {});
+  renderParetoChart();
+}
+
+function renderTrendPropertyControls() {
+  const host = document.getElementById('trend-property-controls');
+  if (!host) return;
+  const available = MATERIAL_ANALYTICS_STATE.availableProperties || [];
+  const selected = new Set(MATERIAL_ANALYTICS_STATE.selectedProperties || []);
+  if (available.length === 0) {
+    host.innerHTML = '<div class="viz-empty">No predicted properties found in the filtered rows.</div>';
+    return;
+  }
+  host.innerHTML = available.map((prop) => {
+    const checked = selected.has(prop) ? 'checked' : '';
+    const direction = MATERIAL_ANALYTICS_STATE.objectiveMap[prop] === 'min' ? 'minimize' : 'maximize';
+    return `
+      <label class="trend-property-option">
+        <input type="checkbox" value="${escapeHtml(prop)}" ${checked} onchange="refreshMaterialAnalytics()">
+        <span>${escapeHtml(prop)}</span>
+        <small>${direction}</small>
+      </label>
+    `;
+  }).join('');
+}
+
+function syncTrendDisplayMode() {
+  const select = document.getElementById('trend-display-mode');
+  if (!select) return;
+  const count = (MATERIAL_ANALYTICS_STATE.selectedProperties || []).length;
+  if (!select.value) {
+    select.value = 'auto';
+  }
+  if (count <= 1 && select.value === 'dual-axis') {
+    select.value = 'auto';
+  }
+}
+
+function renderParetoControls(pareto) {
+  const available = MATERIAL_ANALYTICS_STATE.availableProperties || [];
+  const xSelect = document.getElementById('pareto-x-select');
+  const ySelect = document.getElementById('pareto-y-select');
+  if (!xSelect || !ySelect) return;
+  const xValue = pareto.x_property || '';
+  const yValue = pareto.y_property || '';
+  xSelect.innerHTML = available.map((prop) => `<option value="${escapeHtml(prop)}" ${prop === xValue ? 'selected' : ''}>${escapeHtml(prop)}</option>`).join('');
+  ySelect.innerHTML = available.map((prop) => `<option value="${escapeHtml(prop)}" ${prop === yValue ? 'selected' : ''}>${escapeHtml(prop)}</option>`).join('');
+  if (xValue) xSelect.value = xValue;
+  if (yValue) ySelect.value = yValue;
+  syncAnalyticsQueryInputs();
+}
+
+function handleParetoAxisChange() {
+  const xSelect = document.getElementById('pareto-x-select');
+  const ySelect = document.getElementById('pareto-y-select');
+  if (!xSelect || !ySelect) return;
+  if (xSelect.value && xSelect.value === ySelect.value) {
+    const alternative = Array.from(ySelect.options).find((option) => option.value !== xSelect.value);
+    if (alternative) ySelect.value = alternative.value;
+  }
+  refreshMaterialAnalytics();
+}
+
+function handleParetoIterationChange(value) {
+  const label = document.getElementById('pareto-iteration-label');
+  if (label) label.textContent = String(value || '-');
+  renderParetoChart();
+}
+
+function renderTrendChart(trend, rowCount) {
+  const meta = document.getElementById('trend-chart-meta');
+  const svg = document.getElementById('trend-chart');
+  if (!svg) return;
+  const series = Array.isArray(trend.series) ? trend.series : [];
+  if (series.length === 0) {
+    svg.innerHTML = renderChartEmptyState('No numeric predicted values are available for the selected properties.');
+    if (meta) meta.textContent = `Filtered rows: ${rowCount}.`;
+    return;
+  }
+  const iterations = [...new Set(series.flatMap((item) => (item.points || []).map((point) => Number(point.iteration))))].sort((a, b) => a - b);
+  const colors = ['#0f6a78', '#d06b2c', '#6d4aff', '#257c4b', '#b13f73', '#7d5621'];
+  const markerShapes = ['circle', 'diamond', 'square', 'triangle', 'cross', 'triangle-down'];
+  const modeSelect = document.getElementById('trend-display-mode');
+  const markModeSelect = document.getElementById('trend-mark-mode');
+  const requestedMode = modeSelect?.value || 'auto';
+  const markMode = markModeSelect?.value || 'all';
+  const useDualAxis = series.length === 2 && (requestedMode === 'dual-axis' || requestedMode === 'auto');
+  const useNormalized = !useDualAxis && (series.length > 1 || requestedMode === 'normalized');
+  const padding = useDualAxis ? { top: 24, right: 68, bottom: 48, left: 68 } : { top: 24, right: 24, bottom: 48, left: 56 };
+  const width = 760;
+  const height = 360;
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const minIteration = Math.min(...iterations, 0);
+  const maxIteration = Math.max(...iterations, 1);
+  const preparedSeries = series.map((item, index) => {
+    const rawMin = Number(item.raw_min ?? 0);
+    const rawMax = Number(item.raw_max ?? 0);
+    const span = rawMax - rawMin;
+    const points = (item.points || []).map((point) => {
+      const rawValue = Number(point.best);
+      const normalizedValue = span > 0 ? (rawValue - rawMin) / span : rawValue;
+      return { iteration: Number(point.iteration), normalizedValue, rawValue, count: Number(point.count || 0) };
+    });
+    const allPoints = (item.all_points || []).map((point, pointIndex) => {
+      const rawValue = Number(point.value);
+      const normalizedValue = span > 0 ? (rawValue - rawMin) / span : rawValue;
+      const count = Number(point.count || 0);
+      const rank = Number(point.rank || 1);
+      const jitter = count <= 1 ? 0 : ((rank - (count + 1) / 2) / Math.max(count, 1)) * 0.66;
+      return {
+        iteration: Number(point.iteration),
+        normalizedValue,
+        rawValue,
+        count,
+        rank,
+        pointIndex,
+        jitter,
+        sampleKey: String(point.sample_key || ''),
+        sampleLabel: String(point.sample_label || ''),
+        rowId: Number(point.row_id || 0),
+      };
+    });
+    const bestPoints = points.map((point) => ({
+      ...point,
+      sampleKey: String(point.sample_key || ''),
+      sampleLabel: String(point.sample_label || ''),
+      rowId: Number(point.row_id || 0),
+    }));
+    return {
+      ...item,
+      color: colors[index % colors.length],
+      markerShape: markerShapes[index % markerShapes.length],
+      points: bestPoints,
+      allPoints,
+    };
+  });
+  const sampleColorMap = buildTrendSampleColorMap(preparedSeries, markMode);
+  const xScale = (iteration) => padding.left + ((iteration - minIteration) / Math.max(maxIteration - minIteration, 1)) * plotWidth;
+  const xTicks = iterations;
+  const legend = preparedSeries.map((item) => `
+    <div class="viz-legend-item">
+      <span class="viz-legend-marker">${renderTrendLegendMarker(item.markerShape, item.color)}</span>
+      <span>${escapeHtml(item.property)}</span>
+    </div>
+  `).join('');
+  let displayModeLabel = '';
+  let objectiveLabel = preparedSeries.map((item) => `${item.property} ${item.direction}`).join(', ');
+  const pointModeLabel = markMode === 'best' ? 'best only' : 'all candidates';
+  if (useDualAxis) {
+    const leftSeries = preparedSeries[0];
+    const rightSeries = preparedSeries[1];
+    const leftVisibleValues = (markMode === 'all' ? leftSeries.allPoints : leftSeries.points).map((point) => point.rawValue);
+    const rightVisibleValues = (markMode === 'all' ? rightSeries.allPoints : rightSeries.points).map((point) => point.rawValue);
+    const leftBounds = buildAxisBounds(leftVisibleValues);
+    const rightBounds = buildAxisBounds(rightVisibleValues);
+    const leftScale = (value) => padding.top + (1 - ((value - leftBounds.min) / (leftBounds.max - leftBounds.min))) * plotHeight;
+    const rightScale = (value) => padding.top + (1 - ((value - rightBounds.min) / (rightBounds.max - rightBounds.min))) * plotHeight;
+    const leftTicks = buildTicks(leftBounds.min, leftBounds.max, 5);
+    const rightTicks = buildTicks(rightBounds.min, rightBounds.max, 5);
+    const pointMarkup = preparedSeries.map((item, index) => {
+      const currentScale = index === 0 ? leftScale : rightScale;
+      const allDots = markMode === 'all'
+        ? item.allPoints.map((point) => renderTrendDot({
+            cx: xScale(point.iteration + point.jitter),
+            cy: currentScale(point.rawValue),
+            color: resolveTrendSampleColor(sampleColorMap, point.sampleKey, item.color),
+            markerShape: item.markerShape,
+            radius: 3.3,
+            opacity: 0.35,
+            title: `${item.property} | sample ${point.sampleLabel || point.sampleKey || point.rowId} | iteration ${point.iteration} | value ${formatNumber(point.rawValue)} | rank ${point.rank}/${point.count}`,
+          })).join('')
+        : '';
+      const bestPath = item.points.map((point, idx) => `${idx === 0 ? 'M' : 'L'} ${xScale(point.iteration).toFixed(2)} ${currentScale(point.rawValue).toFixed(2)}`).join(' ');
+      const bestDots = item.points.map((point) => renderTrendDot({
+        cx: xScale(point.iteration),
+        cy: currentScale(point.rawValue),
+        color: resolveTrendSampleColor(sampleColorMap, point.sampleKey, item.color),
+        markerShape: item.markerShape,
+        radius: 4.6,
+        opacity: 0.95,
+        title: `${item.property} | sample ${point.sampleLabel || point.sampleKey || point.rowId} | iteration ${point.iteration} | best ${formatNumber(point.rawValue)} | count ${point.count}`,
+        strokeWidth: 1.6,
+      })).join('');
+      const bestLine = markMode === 'best'
+        ? `<path d="${bestPath}" fill="none" stroke="${item.color}" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"></path>`
+        : '';
+      return `${allDots}${bestLine}${bestDots}`;
+    }).join('');
+    svg.innerHTML = `
+      ${renderDualAxisChartFrame({
+        width,
+        height,
+        padding,
+        xTicks,
+        xScale,
+        leftTicks,
+        leftScale,
+        rightTicks,
+        rightScale,
+        leftFormatter: (value) => formatNumber(value),
+        rightFormatter: (value) => formatNumber(value),
+        xLabel: 'iteration',
+        leftLabel: `${leftSeries.property} (${leftSeries.direction === 'min' ? 'min' : 'max'})`,
+        rightLabel: `${rightSeries.property} (${rightSeries.direction === 'min' ? 'min' : 'max'})`,
+        leftColor: leftSeries.color,
+        rightColor: rightSeries.color,
+      })}
+      ${pointMarkup}
+    `;
+    displayModeLabel = 'dual-axis absolute';
+  } else {
+    let minY = Infinity;
+    let maxY = -Infinity;
+    preparedSeries.forEach((item) => {
+      const visiblePoints = markMode === 'all' ? item.allPoints : item.points;
+      visiblePoints.forEach((point) => {
+        const value = useNormalized ? point.normalizedValue : point.rawValue;
+        minY = Math.min(minY, value);
+        maxY = Math.max(maxY, value);
+      });
+    });
+    if (!Number.isFinite(minY) || !Number.isFinite(maxY)) {
+      minY = 0;
+      maxY = 1;
+    }
+    if (minY === maxY) {
+      minY -= 1;
+      maxY += 1;
+    }
+    const yPadding = (maxY - minY) * 0.08;
+    minY -= yPadding;
+    maxY += yPadding;
+    const yScale = (value) => padding.top + (1 - ((value - minY) / (maxY - minY))) * plotHeight;
+    const yTicks = buildTicks(minY, maxY, 5);
+    const pointMarkup = preparedSeries.map((item) => {
+      const allDots = markMode === 'all'
+        ? item.allPoints.map((point) => {
+            const value = useNormalized ? point.normalizedValue : point.rawValue;
+            return renderTrendDot({
+              cx: xScale(point.iteration + point.jitter),
+              cy: yScale(value),
+              color: resolveTrendSampleColor(sampleColorMap, point.sampleKey, item.color),
+              markerShape: item.markerShape,
+              radius: 3.3,
+              opacity: 0.35,
+              title: `${item.property} | sample ${point.sampleLabel || point.sampleKey || point.rowId} | iteration ${point.iteration} | value ${formatNumber(point.rawValue)} | rank ${point.rank}/${point.count}`,
+            });
+          }).join('')
+        : '';
+      const bestPath = item.points.map((point, idx) => {
+        const value = useNormalized ? point.normalizedValue : point.rawValue;
+        return `${idx === 0 ? 'M' : 'L'} ${xScale(point.iteration).toFixed(2)} ${yScale(value).toFixed(2)}`;
+      }).join(' ');
+      const bestDots = item.points.map((point) => {
+        const value = useNormalized ? point.normalizedValue : point.rawValue;
+        return renderTrendDot({
+          cx: xScale(point.iteration),
+          cy: yScale(value),
+          color: resolveTrendSampleColor(sampleColorMap, point.sampleKey, item.color),
+          markerShape: item.markerShape,
+          radius: 4.6,
+          opacity: 0.95,
+          title: `${item.property} | sample ${point.sampleLabel || point.sampleKey || point.rowId} | iteration ${point.iteration} | best ${formatNumber(point.rawValue)} | count ${point.count}`,
+          strokeWidth: 1.6,
+        });
+      }).join('');
+      const bestLine = markMode === 'best'
+        ? `<path d="${bestPath}" fill="none" stroke="${item.color}" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"></path>`
+        : '';
+      return `${allDots}${bestLine}${bestDots}`;
+    }).join('');
+    const yLabel = useNormalized ? 'normalized best predicted value' : 'best predicted value';
+    svg.innerHTML = `
+      ${renderChartFrame({ width, height, padding, xTicks, yTicks, xScale, yScale, yFormatter: (value) => useNormalized ? value.toFixed(2) : formatNumber(value), xLabel: 'iteration', yLabel })}
+      ${pointMarkup}
+    `;
+    displayModeLabel = useNormalized ? (series.length > 2 ? 'normalized overlay (3+ properties)' : 'normalized overlay') : 'raw values';
+  }
+  if (meta) {
+    meta.innerHTML = `
+      <span>Filtered rows: ${rowCount}</span>
+      <span>Series: ${series.length}</span>
+      <span>Display mode: ${displayModeLabel}</span>
+      <span>Point mode: ${pointModeLabel}</span>
+      <span>Objective: best-of-iteration (${escapeHtml(objectiveLabel)})</span>
+      ${series.length > 2 ? '<span>3+ properties fall back to normalized overlay because one chart only supports two y-axes.</span>' : ''}
+      <div class="viz-legend">${legend}</div>
+    `;
+  }
+}
+
+function renderParetoChart() {
+  const svg = document.getElementById('pareto-chart');
+  const meta = document.getElementById('pareto-chart-meta');
+  const slider = document.getElementById('pareto-iteration-range');
+  const label = document.getElementById('pareto-iteration-label');
+  const colorbar = document.getElementById('pareto-colorbar');
+  const pareto = MATERIAL_ANALYTICS_STATE.pareto || {};
+  if (!svg || !meta || !slider || !label || !colorbar) return;
+  const iterations = Array.isArray(pareto.iterations) ? pareto.iterations : [];
+  if (!pareto.x_property || !pareto.y_property || iterations.length === 0) {
+    slider.min = '0';
+    slider.max = '0';
+    slider.value = '0';
+    label.textContent = '-';
+    colorbar.innerHTML = '';
+    svg.innerHTML = renderChartEmptyState('Pareto frontier needs at least two properties and valid numeric predictions.');
+    meta.textContent = 'Select two properties with numeric predicted values.';
+    return;
+  }
+  slider.min = String(iterations[0]);
+  slider.max = String(iterations[iterations.length - 1]);
+  if (!slider.value || Number(slider.value) < iterations[0] || Number(slider.value) > iterations[iterations.length - 1]) {
+    slider.value = String(iterations[iterations.length - 1]);
+  }
+  label.textContent = slider.value;
+  const activeIteration = Number(slider.value);
+  const snapshot = (pareto.frontier_by_iteration || []).find((item) => Number(item.iteration) === activeIteration) || pareto.frontier_by_iteration[pareto.frontier_by_iteration.length - 1];
+  const visibleIds = new Set(snapshot?.visible_ids || []);
+  const frontierIds = new Set(snapshot?.frontier_ids || []);
+  const visiblePoints = (pareto.points || []).filter((point) => visibleIds.has(Number(point.id)));
+  if (visiblePoints.length === 0) {
+    svg.innerHTML = renderChartEmptyState('No Pareto points are available for the current iteration.');
+    meta.textContent = 'Adjust the selected properties or filters.';
+    return;
+  }
+  const padding = { top: 24, right: 24, bottom: 52, left: 64 };
+  const width = 760;
+  const height = 360;
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const xs = visiblePoints.map((point) => Number(point.x));
+  const ys = visiblePoints.map((point) => Number(point.y));
+  let minX = Math.min(...xs);
+  let maxX = Math.max(...xs);
+  let minY = Math.min(...ys);
+  let maxY = Math.max(...ys);
+  if (minX === maxX) { minX -= 1; maxX += 1; }
+  if (minY === maxY) { minY -= 1; maxY += 1; }
+  const xPad = (maxX - minX) * 0.08;
+  const yPad = (maxY - minY) * 0.08;
+  minX -= xPad; maxX += xPad; minY -= yPad; maxY += yPad;
+  const xScale = (value) => padding.left + ((value - minX) / (maxX - minX)) * plotWidth;
+  const yScale = (value) => padding.top + (1 - ((value - minY) / (maxY - minY))) * plotHeight;
+  const yTicks = Array.from({ length: 5 }, (_, idx) => minY + ((maxY - minY) * idx) / 4);
+  const xTicks = Array.from({ length: 5 }, (_, idx) => minX + ((maxX - minX) * idx) / 4);
+  const frontierPoints = visiblePoints.filter((point) => frontierIds.has(Number(point.id)));
+  const nonFrontierPoints = visiblePoints.filter((point) => !frontierIds.has(Number(point.id)));
+  const minIteration = Math.min(...iterations);
+  const maxIteration = Math.max(...iterations);
+  renderParetoColorbar(minIteration, maxIteration);
+  let frontierPath = '';
+  if (frontierPoints.length > 1) {
+    const sortedFrontier = [...frontierPoints].sort((a, b) => Number(a.x) - Number(b.x));
+    frontierPath = sortedFrontier.map((point, index) => `${index === 0 ? 'M' : 'L'} ${xScale(Number(point.x)).toFixed(2)} ${yScale(Number(point.y)).toFixed(2)}`).join(' ');
+  }
+  const renderPointGroup = (points, radius, strokeWidth, opacityBoost = 0) => points.map((point) => {
+    const color = getIterationColor(Number(point.iteration), minIteration, maxIteration, opacityBoost);
+    const stroke = getIterationStrokeColor(Number(point.iteration), minIteration, maxIteration);
+    return `
+    <circle cx="${xScale(Number(point.x)).toFixed(2)}" cy="${yScale(Number(point.y)).toFixed(2)}" r="${radius}" fill="${color}" stroke="${stroke}" stroke-width="${strokeWidth}">
+      <title>#${point.id} | iteration ${point.iteration} | ${escapeHtml(pareto.x_property)}=${formatNumber(point.x)} | ${escapeHtml(pareto.y_property)}=${formatNumber(point.y)}${point.source_name ? ` | ${escapeHtml(point.source_name)}` : ''}</title>
+    </circle>
+  `;
+  }).join('');
+  svg.innerHTML = `
+    ${renderChartFrame({
+      width,
+      height,
+      padding,
+      xTicks,
+      yTicks,
+      xScale,
+      yScale,
+      xFormatter: (value) => formatNumber(value),
+      yFormatter: (value) => formatNumber(value),
+      xLabel: `${pareto.x_property} (${pareto.x_direction === 'min' ? 'min' : 'max'})`,
+      yLabel: `${pareto.y_property} (${pareto.y_direction === 'min' ? 'min' : 'max'})`,
+    })}
+    ${frontierPath ? `<path d="${frontierPath}" fill="none" stroke="#b13f73" stroke-width="3" stroke-dasharray="8 5"></path>` : ''}
+    ${renderPointGroup(nonFrontierPoints, 5, 1.4, 0)}
+    ${renderPointGroup(frontierPoints, 6.8, 2.1, 0.2)}
+  `;
+  meta.innerHTML = `
+    <span>Visible points: ${visiblePoints.length}</span>
+    <span>Frontier points: ${frontierPoints.length}</span>
+    <span>Iteration window: cumulative up to ${activeIteration}</span>
+    <span>Frontier rule: ${pareto.x_direction === 'min' ? 'minimize' : 'maximize'} ${escapeHtml(pareto.x_property)}, ${pareto.y_direction === 'min' ? 'minimize' : 'maximize'} ${escapeHtml(pareto.y_property)}</span>
+    <span>Point color: early iteration = cool, late iteration = warm</span>
+  `;
+}
+
+function renderParetoColorbar(minIteration, maxIteration) {
+  const host = document.getElementById('pareto-colorbar');
+  if (!host) return;
+  const gradient = buildIterationGradient(minIteration, maxIteration, 18);
+  host.innerHTML = `
+    <span class="viz-colorbar-label">Iteration color</span>
+    <div class="viz-colorbar-track" style="background: ${gradient};"></div>
+    <div class="viz-colorbar-scale">
+      <span>early ${formatInteger(minIteration)}</span>
+      <span>late ${formatInteger(maxIteration)}</span>
+    </div>
+  `;
+}
+
+function renderChartFrame({ width, height, padding, xTicks, yTicks, xScale, yScale, xFormatter, yFormatter, xLabel, yLabel }) {
+  const gradientId = `viz-bg-${MATERIAL_VIZ_ID_SEQ += 1}`;
+  const xTickMarkup = (xTicks || []).map((tick) => `
+    <g>
+      <line x1="${xScale(Number(tick)).toFixed(2)}" y1="${height - padding.bottom}" x2="${xScale(Number(tick)).toFixed(2)}" y2="${padding.top}" stroke="rgba(166,151,131,0.18)"></line>
+      <text x="${xScale(Number(tick)).toFixed(2)}" y="${height - padding.bottom + 22}" text-anchor="middle" class="viz-axis-text">${xFormatter ? xFormatter(Number(tick)) : tick}</text>
+    </g>
+  `).join('');
+  const yTickMarkup = (yTicks || []).map((tick) => `
+    <g>
+      <line x1="${padding.left}" y1="${yScale(Number(tick)).toFixed(2)}" x2="${width - padding.right}" y2="${yScale(Number(tick)).toFixed(2)}" stroke="rgba(166,151,131,0.18)"></line>
+      <text x="${padding.left - 10}" y="${yScale(Number(tick)).toFixed(2) + 4}" text-anchor="end" class="viz-axis-text">${yFormatter ? yFormatter(Number(tick)) : tick}</text>
+    </g>
+  `).join('');
+  return `
+    <rect x="0" y="0" width="${width}" height="${height}" rx="20" fill="url(#${gradientId})"></rect>
+    <defs>
+      <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#fffdf9"></stop>
+        <stop offset="100%" stop-color="#f7efe1"></stop>
+      </linearGradient>
+    </defs>
+    ${xTickMarkup}
+    ${yTickMarkup}
+    <line x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" stroke="#7d6c58" stroke-width="1.5"></line>
+    <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom}" stroke="#7d6c58" stroke-width="1.5"></line>
+    <text x="${(width / 2).toFixed(2)}" y="${height - 12}" text-anchor="middle" class="viz-axis-label">${escapeHtml(xLabel)}</text>
+    <text x="18" y="${(height / 2).toFixed(2)}" text-anchor="middle" class="viz-axis-label" transform="rotate(-90 18 ${(height / 2).toFixed(2)})">${escapeHtml(yLabel)}</text>
+  `;
+}
+
+function renderDualAxisChartFrame({
+  width, height, padding, xTicks, xScale,
+  leftTicks, leftScale, rightTicks, rightScale,
+  leftFormatter, rightFormatter, xLabel, leftLabel, rightLabel, leftColor, rightColor,
+}) {
+  const gradientId = `viz-bg-${MATERIAL_VIZ_ID_SEQ += 1}`;
+  const xTickMarkup = (xTicks || []).map((tick) => `
+    <g>
+      <line x1="${xScale(Number(tick)).toFixed(2)}" y1="${height - padding.bottom}" x2="${xScale(Number(tick)).toFixed(2)}" y2="${padding.top}" stroke="rgba(166,151,131,0.18)"></line>
+      <text x="${xScale(Number(tick)).toFixed(2)}" y="${height - padding.bottom + 22}" text-anchor="middle" class="viz-axis-text">${tick}</text>
+    </g>
+  `).join('');
+  const leftTickMarkup = (leftTicks || []).map((tick) => `
+    <g>
+      <line x1="${padding.left}" y1="${leftScale(Number(tick)).toFixed(2)}" x2="${width - padding.right}" y2="${leftScale(Number(tick)).toFixed(2)}" stroke="rgba(166,151,131,0.18)"></line>
+      <text x="${padding.left - 10}" y="${leftScale(Number(tick)).toFixed(2) + 4}" text-anchor="end" class="viz-axis-text" fill="${leftColor}">${leftFormatter(Number(tick))}</text>
+    </g>
+  `).join('');
+  const rightTickMarkup = (rightTicks || []).map((tick) => `
+    <g>
+      <text x="${width - padding.right + 10}" y="${rightScale(Number(tick)).toFixed(2) + 4}" text-anchor="start" class="viz-axis-text" fill="${rightColor}">${rightFormatter(Number(tick))}</text>
+    </g>
+  `).join('');
+  return `
+    <rect x="0" y="0" width="${width}" height="${height}" rx="20" fill="url(#${gradientId})"></rect>
+    <defs>
+      <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#fffdf9"></stop>
+        <stop offset="100%" stop-color="#f7efe1"></stop>
+      </linearGradient>
+    </defs>
+    ${xTickMarkup}
+    ${leftTickMarkup}
+    ${rightTickMarkup}
+    <line x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" stroke="#7d6c58" stroke-width="1.5"></line>
+    <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom}" stroke="${leftColor}" stroke-width="1.8"></line>
+    <line x1="${width - padding.right}" y1="${padding.top}" x2="${width - padding.right}" y2="${height - padding.bottom}" stroke="${rightColor}" stroke-width="1.8"></line>
+    <text x="${(width / 2).toFixed(2)}" y="${height - 12}" text-anchor="middle" class="viz-axis-label">${escapeHtml(xLabel)}</text>
+    <text x="18" y="${(height / 2).toFixed(2)}" text-anchor="middle" class="viz-axis-label" fill="${leftColor}" transform="rotate(-90 18 ${(height / 2).toFixed(2)})">${escapeHtml(leftLabel)}</text>
+    <text x="${width - 18}" y="${(height / 2).toFixed(2)}" text-anchor="middle" class="viz-axis-label" fill="${rightColor}" transform="rotate(90 ${width - 18} ${(height / 2).toFixed(2)})">${escapeHtml(rightLabel)}</text>
+  `;
+}
+
+function buildAxisBounds(values) {
+  const valid = (values || []).map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  if (valid.length === 0) return { min: 0, max: 1 };
+  let min = Math.min(...valid);
+  let max = Math.max(...valid);
+  if (min === max) {
+    min -= 1;
+    max += 1;
+  }
+  const pad = (max - min) * 0.08;
+  return { min: min - pad, max: max + pad };
+}
+
+function buildTicks(minValue, maxValue, count = 5) {
+  const safeCount = Math.max(2, Number(count) || 5);
+  return Array.from({ length: safeCount }, (_, idx) => minValue + ((maxValue - minValue) * idx) / (safeCount - 1));
+}
+
+function buildTrendSampleColorMap(preparedSeries, markMode) {
+  const allKeys = [];
+  preparedSeries.forEach((item) => {
+    const visiblePoints = markMode === 'all' ? item.allPoints : item.points;
+    visiblePoints.forEach((point) => {
+      const key = String(point.sampleKey || '').trim();
+      if (key && !allKeys.includes(key)) {
+        allKeys.push(key);
+      }
+    });
+  });
+  const palette = ['#0f6a78', '#d06b2c', '#6d4aff', '#257c4b', '#b13f73', '#7d5621', '#148f77', '#9a6324', '#3d5a80', '#8d99ae', '#c8553d', '#4c956c'];
+  const output = {};
+  allKeys.forEach((key, index) => {
+    output[key] = palette[index % palette.length];
+  });
+  return output;
+}
+
+function resolveTrendSampleColor(sampleColorMap, sampleKey, fallbackColor) {
+  const key = String(sampleKey || '').trim();
+  if (!key) return fallbackColor;
+  return sampleColorMap[key] || fallbackColor;
+}
+
+function renderTrendLegendMarker(shape, color) {
+  return renderTrendMarkerSvg(shape, color, 16, 16, 6, true);
+}
+
+function renderTrendDot({ cx, cy, color, markerShape, radius, opacity, title, strokeWidth = 1.2 }) {
+  return renderTrendMarkerSvg(markerShape, color, Number(cx).toFixed(2), Number(cy).toFixed(2), radius, false, opacity, title, strokeWidth);
+}
+
+function renderTrendMarkerSvg(shape, color, x, y, size, forLegend = false, opacity = 1, title = '', strokeWidth = 1.2) {
+  const marker = String(shape || 'circle');
+  const centerX = Number(x);
+  const centerY = Number(y);
+  const half = Number(size);
+  const common = `fill="${color}" fill-opacity="${opacity}" stroke="${color}" stroke-width="${strokeWidth}"`;
+  let geometry = '';
+  if (marker === 'diamond') {
+    geometry = `<path d="M ${centerX} ${centerY - half} L ${centerX + half} ${centerY} L ${centerX} ${centerY + half} L ${centerX - half} ${centerY} Z" ${common}></path>`;
+  } else if (marker === 'square') {
+    geometry = `<rect x="${centerX - half}" y="${centerY - half}" width="${half * 2}" height="${half * 2}" ${common}></rect>`;
+  } else if (marker === 'triangle') {
+    geometry = `<path d="M ${centerX} ${centerY - half} L ${centerX + half} ${centerY + half} L ${centerX - half} ${centerY + half} Z" ${common}></path>`;
+  } else if (marker === 'triangle-down') {
+    geometry = `<path d="M ${centerX - half} ${centerY - half} L ${centerX + half} ${centerY - half} L ${centerX} ${centerY + half} Z" ${common}></path>`;
+  } else if (marker === 'cross') {
+    geometry = `
+      <path d="M ${centerX - half} ${centerY} L ${centerX + half} ${centerY} M ${centerX} ${centerY - half} L ${centerX} ${centerY + half}" fill="none" stroke="${color}" stroke-width="${strokeWidth + 0.6}" stroke-linecap="round" stroke-opacity="${opacity}"></path>
+    `;
+  } else {
+    geometry = `<circle cx="${centerX}" cy="${centerY}" r="${half}" ${common}></circle>`;
+  }
+  const titleMarkup = title ? `<title>${escapeHtml(title)}</title>` : '';
+  if (forLegend) {
+    return `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">${titleMarkup}${geometry}</svg>`;
+  }
+  return `${geometry}${titleMarkup}`;
+}
+
+function renderChartEmptyState(message) {
+  const gradientId = `viz-empty-${MATERIAL_VIZ_ID_SEQ += 1}`;
+  return `
+    <rect x="0" y="0" width="760" height="360" rx="20" fill="url(#${gradientId})"></rect>
+    <defs>
+      <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#fffdf9"></stop>
+        <stop offset="100%" stop-color="#f7efe1"></stop>
+      </linearGradient>
+    </defs>
+    <text x="380" y="176" text-anchor="middle" class="viz-empty-svg">${escapeHtml(message)}</text>
+  `;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatNumber(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '-';
+  const absValue = Math.abs(numeric);
+  if (absValue >= 10000) {
+    return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(numeric);
+  }
+  if (absValue >= 1) {
+    return numeric.toFixed(3).replace(/\.?0+$/, '');
+  }
+  if (absValue >= 0.01) {
+    return numeric.toFixed(4).replace(/\.?0+$/, '');
+  }
+  return numeric.toFixed(6).replace(/\.?0+$/, '');
+}
+
+function formatInteger(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '-';
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(numeric);
+}
+
+function getIterationColor(iteration, minIteration, maxIteration, opacityBoost = 0) {
+  const ratio = normalizeIterationRatio(iteration, minIteration, maxIteration);
+  const hue = 210 - (ratio * 185);
+  const saturation = 62 + (ratio * 16);
+  const lightness = 72 - (ratio * 18);
+  const alpha = Math.min(0.9, 0.35 + ratio * 0.45 + opacityBoost);
+  return `hsla(${hue.toFixed(1)}, ${saturation.toFixed(1)}%, ${lightness.toFixed(1)}%, ${alpha.toFixed(3)})`;
+}
+
+function getIterationStrokeColor(iteration, minIteration, maxIteration) {
+  const ratio = normalizeIterationRatio(iteration, minIteration, maxIteration);
+  const hue = 215 - (ratio * 175);
+  const saturation = 72;
+  const lightness = 38 - (ratio * 8);
+  return `hsl(${hue.toFixed(1)}, ${saturation}%, ${lightness.toFixed(1)}%)`;
+}
+
+function buildIterationGradient(minIteration, maxIteration, steps = 16) {
+  const count = Math.max(2, Number(steps) || 16);
+  const stops = [];
+  for (let index = 0; index < count; index += 1) {
+    const ratio = count === 1 ? 0 : index / (count - 1);
+    const iteration = minIteration + ((maxIteration - minIteration) * ratio);
+    const color = getIterationColor(iteration, minIteration, maxIteration, 0.08);
+    stops.push(`${color} ${(ratio * 100).toFixed(2)}%`);
+  }
+  return `linear-gradient(90deg, ${stops.join(', ')})`;
+}
+
+function normalizeIterationRatio(iteration, minIteration, maxIteration) {
+  const minValue = Number(minIteration);
+  const maxValue = Number(maxIteration);
+  const current = Number(iteration);
+  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue) || !Number.isFinite(current) || maxValue <= minValue) {
+    return 0.5;
+  }
+  return Math.min(1, Math.max(0, (current - minValue) / (maxValue - minValue)));
+}
+
+function syncMountedRunIdsOutput() {
+  const output = document.getElementById('mounted-run-ids-output');
+  if (!output) return;
+  const selected = Array.from(document.querySelectorAll('.mounted-run-check:checked'))
+    .map((element) => String(element.value || '').trim())
+    .filter(Boolean);
+  output.value = selected.join(',');
+}
+
+async function copyMountedRunIds() {
+  syncMountedRunIdsOutput();
+  const output = document.getElementById('mounted-run-ids-output');
+  if (!output || !output.value.trim()) {
+    alert('Select at least one historical run first.');
+    return;
+  }
+  output.focus();
+  output.select();
+  try {
+    await navigator.clipboard.writeText(output.value);
+  } catch (_) {
+    document.execCommand('copy');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  syncMountedRunIdsOutput();
+  refreshMaterialAnalytics();
+});
 </script>
 {% endblock %}

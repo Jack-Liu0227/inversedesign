@@ -10,6 +10,7 @@ from agno.db.sqlite import SqliteDb
 from agno.tools import tool
 
 from src.common import MATERIAL_AGENT_SHARED_DB_ID, MATERIAL_PREDICTOR_AGENT_DB, build_model, log_prediction_prompt
+from src.common.workflow_run_context import get_current_run_id
 from src.fewshot import FewshotPredictor, resolve_material_type_input, supported_material_type_hint
 from src.fewshot.parsing import ResultParser
 from src.schemas import AgentPredictorOutput, CandidatePrediction
@@ -70,6 +71,22 @@ def _normalize_for_logging(value: Any, label: str) -> Dict[str, Any]:
             pass
         return {f"{label}_text": text}
     return {f"{label}_text": str(value)}
+
+
+def _normalize_mounted_run_ids(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        items = [part.strip() for part in raw.split(",")]
+    elif isinstance(raw, list):
+        items = [str(item or "").strip() for item in raw]
+    else:
+        items = [str(raw or "").strip()]
+    normalized: list[str] = []
+    for item in items:
+        if item and item not in normalized:
+            normalized.append(item)
+    return normalized
 
 
 def _single_tool_error(error: str, hint: str) -> Dict[str, Any]:
@@ -150,6 +167,7 @@ def predict_material_properties(
     processing: Optional[Any] = None,
     features: Optional[Any] = None,
     top_k: int = 3,
+    mounted_workflow_run_ids: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
     if not (material_type or "").strip():
         return _single_tool_error(
@@ -167,6 +185,8 @@ def predict_material_properties(
         material_type=material_type,
     )
     predictor = _build_predictor()
+    normalized_mounted_run_ids = _normalize_mounted_run_ids(mounted_workflow_run_ids)
+    current_run_id = get_current_run_id()
     try:
         result = predictor.predict(
             material_type=resolved_material_type,
@@ -174,6 +194,8 @@ def predict_material_properties(
             processing=processing,
             features=features,
             top_k=top_k,
+            mounted_workflow_run_ids=normalized_mounted_run_ids,
+            current_workflow_run_id=current_run_id,
         )
     except ValueError as exc:
         if "Unsupported material_type" in str(exc):
@@ -182,6 +204,8 @@ def predict_material_properties(
         raise
 
     _ = log_prediction_prompt(
+        workflow_run_id=current_run_id,
+        mounted_workflow_run_ids=normalized_mounted_run_ids,
         material_type_input=material_type,
         material_type_resolved=resolved_material_type,
         composition=composition,
@@ -213,6 +237,7 @@ def predict_material_properties_batch(
     goal: str = "",
     top_k: int = 3,
     max_workers: int = 3,
+    mounted_workflow_run_ids: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
     if not (material_type or "").strip():
         return _batch_tool_error(
@@ -229,6 +254,8 @@ def predict_material_properties_batch(
         goal=goal,
         material_type=material_type,
     )
+    current_run_id = get_current_run_id()
+    normalized_mounted_run_ids = _normalize_mounted_run_ids(mounted_workflow_run_ids)
 
     workers = max(1, min(int(max_workers or 1), 8, len(candidates)))
 
@@ -248,11 +275,15 @@ def predict_material_properties_batch(
                 processing=processing,
                 features=features,
                 top_k=top_k,
+                mounted_workflow_run_ids=normalized_mounted_run_ids,
+                current_workflow_run_id=current_run_id,
             )
         except Exception as exc:
             return _prediction_error_result(index=index, error=str(exc))
 
         _ = log_prediction_prompt(
+            workflow_run_id=current_run_id,
+            mounted_workflow_run_ids=normalized_mounted_run_ids,
             material_type_input=material_type,
             material_type_resolved=resolved_material_type,
             composition=composition,
@@ -330,6 +361,9 @@ material_predictor_agent = Agent(
         "Supported dataset keys are: ti, steel, al, hea, hea_pitting.",
         "Use predict_material_properties for one candidate.",
         "Use predict_material_properties_batch when multiple candidates are provided.",
+        "When the prompt provides top_k, you must pass that exact top_k value into the tool call. Do not omit it.",
+        "When the prompt provides goal or material_type, forward those exact values into the tool call.",
+        "When the prompt provides mounted_workflow_run_ids, forward that exact list into the tool call.",
         "Never call prediction tools with empty args. material_type and composition/candidates must be present.",
         "Each tool call must contain exactly one JSON arguments object.",
         "Do not concatenate multiple JSON objects in a single tool call.",

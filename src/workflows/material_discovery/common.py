@@ -27,6 +27,7 @@ from src.common import (
     log_workflow_event,
     log_workflow_step,
     run_local_db_migrations,
+    upsert_workflow_run_meta,
 )
 from src.schemas import WorkflowInput
 
@@ -87,15 +88,40 @@ def trace_id(step_input: StepInput, request: WorkflowInput) -> str:
     return session_id or f"trace-{uuid4()}"
 
 
+def effective_workflow_run_id(step_input: StepInput, request: WorkflowInput) -> str:
+    if request.resume_run_id:
+        return str(request.resume_run_id).strip()
+    run_id = run_id_from_step_input(step_input)
+    if isinstance(run_id, str) and run_id.strip():
+        return run_id.strip()
+    return trace_id(step_input, request)
+
+
+def sync_workflow_run_meta(
+    step_input: StepInput,
+    request: WorkflowInput,
+    *,
+    material_type: str = "",
+) -> None:
+    upsert_workflow_run_meta(
+        workflow_run_id=effective_workflow_run_id(step_input, request),
+        session_id=session_id_from_step_input(step_input) or "",
+        material_type=str(material_type or "").strip().lower(),
+        run_note=str(request.run_note or ""),
+        mounted_run_ids=list(request.mounted_workflow_run_ids or []),
+    )
+
+
 def ensure_run_audit_row(step_input: StepInput, request: WorkflowInput) -> int:
     trace = trace_id(step_input, request)
     existing = _AUDIT_ROW_BY_TRACE.get(trace)
     if existing is not None:
         return existing
+    sync_workflow_run_meta(step_input, request)
     audit_id = create_workflow_run_audit(
         workflow_name="material_discovery_workflow",
         session_id=session_id_from_step_input(step_input),
-        run_id=run_id_from_step_input(step_input),
+        workflow_run_id=effective_workflow_run_id(step_input, request),
         user_id=request.user_id,
         input_payload=to_jsonable(step_input.input) or {},
     )
@@ -176,6 +202,9 @@ def summarize_request(request: WorkflowInput) -> Dict[str, Any]:
         "max_iterations": request.max_iterations,
         "top_k": request.top_k,
         "recommend_count_policy": request.recommend_count_policy,
+        "resume_run_id": request.resume_run_id,
+        "mounted_workflow_run_ids": list(request.mounted_workflow_run_ids or []),
+        "run_note": str(request.run_note or ""),
         "experiment_feedback": feedback_status,
         "measured_values": measured_preview,
         "preference_feedback": preference_feedback,
@@ -296,7 +325,7 @@ def audit_event(
         workflow_name="material_discovery_workflow",
         trace_id=trace_id(step_input, request),
         session_id=session_id_from_step_input(step_input),
-        run_id=run_id_from_step_input(step_input),
+        workflow_run_id=effective_workflow_run_id(step_input, request),
         user_id=request.user_id,
         step_name=step_name,
         event_type=event_type,
@@ -317,6 +346,7 @@ def build_step(name: str, executor: Any, **kwargs: Any) -> Step:
 
     def _logged_executor(step_input: StepInput) -> StepOutput:
         request = request_from_step_input(step_input)
+        workflow_run_id = effective_workflow_run_id(step_input, request)
         debug = is_debug_enabled(request)
         apply_request_debug_mode(debug=debug, debug_level=debug_level(request))
         audit_id = ensure_run_audit_row(step_input, request)
@@ -342,7 +372,7 @@ def build_step(name: str, executor: Any, **kwargs: Any) -> Step:
             workflow_name="material_discovery_workflow",
             trace_id=trace_id(step_input, request),
             session_id=session_id_from_step_input(step_input),
-            run_id=run_id_from_step_input(step_input),
+            workflow_run_id=workflow_run_id,
             user_id=request.user_id,
             step_name=name,
             status="step_start",
@@ -367,7 +397,7 @@ def build_step(name: str, executor: Any, **kwargs: Any) -> Step:
                 workflow_name="material_discovery_workflow",
                 trace_id=trace_id(step_input, request),
                 session_id=session_id_from_step_input(step_input),
-                run_id=run_id_from_step_input(step_input),
+                workflow_run_id=workflow_run_id,
                 user_id=request.user_id,
                 step_name=name,
                 status="step_end",
@@ -380,7 +410,7 @@ def build_step(name: str, executor: Any, **kwargs: Any) -> Step:
                     workflow_name="material_discovery_workflow",
                     trace_id=trace_id(step_input, request),
                     session_id=session_id_from_step_input(step_input),
-                    run_id=run_id_from_step_input(step_input),
+                    workflow_run_id=workflow_run_id,
                     execution_id=None,
                     step_name=name,
                     agent_name=name,
@@ -436,7 +466,7 @@ def build_step(name: str, executor: Any, **kwargs: Any) -> Step:
                 workflow_name="material_discovery_workflow",
                 trace_id=trace_id(step_input, request),
                 session_id=session_id_from_step_input(step_input),
-                run_id=run_id_from_step_input(step_input),
+                workflow_run_id=workflow_run_id,
                 user_id=request.user_id,
                 step_name=name,
                 status="error",
@@ -451,7 +481,7 @@ def build_step(name: str, executor: Any, **kwargs: Any) -> Step:
                     workflow_name="material_discovery_workflow",
                     trace_id=trace_id(step_input, request),
                     session_id=session_id_from_step_input(step_input),
-                    run_id=run_id_from_step_input(step_input),
+                    workflow_run_id=workflow_run_id,
                     execution_id=None,
                     step_name=name,
                     agent_name=name,

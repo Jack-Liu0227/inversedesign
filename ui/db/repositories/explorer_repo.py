@@ -6,6 +6,7 @@ from typing import Any
 
 from ui.config import get_config
 from ui.db.connection import db_manager
+from ui.services.sort_service import normalize_sort_order, sqlite_smart_order_clause
 from ui.services.timezone_service import normalize_row_datetimes
 
 
@@ -57,6 +58,7 @@ class ExplorerRepository:
         page_size: int,
         q: str | None = None,
         identifier: str | None = None,
+        sort_by: str | None = None,
         sort_order: str = "desc",
         extra_filters: dict[str, str] | None = None,
         created_from: str | None = None,
@@ -134,13 +136,22 @@ class ExplorerRepository:
 
             offset = (page - 1) * page_size
             select_cols = ', '.join([f'"{c}"' for c in col_names])
-            normalized_order = "ASC" if str(sort_order).lower() == "asc" else "DESC"
-            if "created_at" in col_names:
-                order_sql = f'ORDER BY "created_at" {normalized_order}'
+            normalized_order = normalize_sort_order(sort_order, default="desc")
+            requested_sort_col = str(sort_by or "").strip()
+            if requested_sort_col in col_names:
+                order_expr = f'"{requested_sort_col}"'
+            elif "created_at" in col_names:
+                order_expr = '"created_at"'
             elif "id" in col_names:
-                order_sql = f'ORDER BY "id" {normalized_order}'
+                order_expr = '"id"'
             else:
-                order_sql = f"ORDER BY rowid {normalized_order}"
+                order_expr = "rowid"
+            tie_breaker = '"id"' if "id" in col_names else "rowid"
+            order_sql = sqlite_smart_order_clause(
+                value_expr=order_expr,
+                sort_order=normalized_order,
+                tie_breaker_expr=tie_breaker,
+            )
 
             if record_key == "__rowid__":
                 sql = (
@@ -197,7 +208,7 @@ class ExplorerRepository:
         table: str,
         trace_id: str | None = None,
         session_id: str | None = None,
-        run_id: str | None = None,
+        workflow_run_id: str | None = None,
         step_name: str | None = None,
         agent_name: str | None = None,
         event_type: str | None = None,
@@ -212,25 +223,28 @@ class ExplorerRepository:
             "workflow_io_logs",
             "workflow_run_audit",
         ]
-        if db_key != "workflow_audit" or table not in known_tables:
-            return {
-                "step_names": [],
-                "agent_names": [],
-                "tool_names": [],
-                "statuses": [],
-                "event_types": [],
-                "decisions": [],
-                "should_stop_values": [],
-                "success_values": [],
-                "trace_ids": [],
-                "session_ids": [],
-                "run_ids": [],
-            }
+        empty = {
+            "step_names": [],
+            "agent_names": [],
+            "tool_names": [],
+            "statuses": [],
+            "event_types": [],
+            "decisions": [],
+            "should_stop_values": [],
+            "success_values": [],
+            "trace_ids": [],
+            "session_ids": [],
+            "workflow_run_ids": [],
+        }
+        all_tables = self.list_tables(db_key)
+        if table not in all_tables:
+            return empty
+        target_tables = known_tables if db_key == "workflow_audit" and table in known_tables else [table]
         with db_manager.connect(db_key, readonly=True) as conn:
             context_filters = {
                 "trace_id": trace_id or "",
                 "session_id": session_id or "",
-                "run_id": run_id or "",
+                "workflow_run_id": workflow_run_id or "",
             }
             chain_filters = {
                 **context_filters,
@@ -246,69 +260,69 @@ class ExplorerRepository:
                 "step_names": self._ordered_step_names(
                     self._distinct_from_tables(
                         conn=conn,
-                        tables=known_tables,
+                        tables=target_tables,
                         column="step_name",
                         filters=context_filters,
                     )
                 ),
                 "agent_names": self._distinct_from_tables(
                     conn=conn,
-                    tables=known_tables,
+                    tables=target_tables,
                     column="agent_name",
                     filters=chain_filters,
                 ),
                 "tool_names": self._distinct_from_tables(
                     conn=conn,
-                    tables=known_tables,
+                    tables=target_tables,
                     column="tool_name",
                     filters=chain_filters,
                 ),
                 "statuses": self._distinct_from_tables(
                     conn=conn,
-                    tables=known_tables,
+                    tables=target_tables,
                     column="status",
                     filters=chain_filters,
                 ),
                 "event_types": self._distinct_from_tables(
                     conn=conn,
-                    tables=known_tables,
+                    tables=target_tables,
                     column="event_type",
                     filters=chain_filters,
                 ),
                 "decisions": self._distinct_from_tables(
                     conn=conn,
-                    tables=known_tables,
+                    tables=target_tables,
                     column="decision",
                     filters=chain_filters,
                 ),
                 "should_stop_values": self._distinct_from_tables(
                     conn=conn,
-                    tables=known_tables,
+                    tables=target_tables,
                     column="should_stop",
                     filters=chain_filters,
                 ),
                 "success_values": self._distinct_from_tables(
                     conn=conn,
-                    tables=known_tables,
+                    tables=target_tables,
                     column="success",
                     filters=context_filters,
                 ),
                 "trace_ids": self._distinct_from_tables(
                     conn=conn,
-                    tables=known_tables,
+                    tables=target_tables,
                     column="trace_id",
                     filters={},
                 ),
                 "session_ids": self._distinct_from_tables(
                     conn=conn,
-                    tables=known_tables,
+                    tables=target_tables,
                     column="session_id",
                     filters={},
                 ),
-                "run_ids": self._distinct_from_tables(
+                "workflow_run_ids": self._distinct_from_tables(
                     conn=conn,
-                    tables=known_tables,
-                    column="run_id",
+                    tables=target_tables,
+                    column="workflow_run_id",
                     filters=context_filters,
                 ),
             }
@@ -454,6 +468,291 @@ class ExplorerRepository:
 
         return {"deleted": deleted}
 
+    def delete_rows_by_column_value_to_recycle_bin(
+        self,
+        *,
+        db_key: str,
+        table: str,
+        filter_col: str,
+        filter_value: str,
+    ) -> dict[str, int]:
+        safe_filter_col = str(filter_col or "").strip()
+        safe_filter_value = str(filter_value or "").strip()
+        if not safe_filter_col or not safe_filter_value:
+            return {"deleted": 0}
+        if table not in self.list_tables(db_key):
+            raise ValueError(f"Unknown table: {table}")
+
+        columns = self.get_table_columns(db_key, table)
+        col_names = [str(c.get("name")) for c in columns]
+        if safe_filter_col not in col_names:
+            raise ValueError(f"Column {safe_filter_col} does not exist in {table}")
+
+        pk_cols = [str(c.get("name")) for c in columns if c.get("pk")]
+        key_col = pk_cols[0] if pk_cols else "__rowid__"
+        if key_col != "__rowid__" and key_col not in col_names:
+            key_col = "__rowid__"
+
+        with db_manager.connect(db_key, readonly=True) as conn:
+            if key_col == "__rowid__":
+                rows = conn.execute(
+                    f'SELECT CAST(rowid AS TEXT) AS key_val FROM "{table}" WHERE CAST("{safe_filter_col}" AS TEXT) = ?',
+                    [safe_filter_value],
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    f'SELECT CAST("{key_col}" AS TEXT) AS key_val FROM "{table}" WHERE CAST("{safe_filter_col}" AS TEXT) = ?',
+                    [safe_filter_value],
+                ).fetchall()
+
+        key_values = [str(r["key_val"]) for r in rows if str(r["key_val"]).strip()]
+        if not key_values:
+            return {"deleted": 0}
+        return self.delete_rows_to_recycle_bin(
+            db_key=db_key,
+            table=table,
+            key_col=key_col,
+            key_values=key_values,
+        )
+
+    def delete_by_workflow_run_id_across_workflow_dbs_to_recycle_bin(
+        self,
+        *,
+        workflow_run_id: str,
+    ) -> dict[str, Any]:
+        return self.delete_by_column_value_across_databases_to_recycle_bin(
+            filter_col="workflow_run_id",
+            filter_value=workflow_run_id,
+        )
+
+    def preview_rows_by_column_value_across_databases(
+        self,
+        *,
+        filter_col: str,
+        filter_value: str,
+        sample_limit: int = 5,
+    ) -> dict[str, Any]:
+        safe_filter_col = str(filter_col or "").strip()
+        safe_filter_value = str(filter_value or "").strip()
+        if not safe_filter_col or not safe_filter_value:
+            return {
+                "filter_col": safe_filter_col,
+                "filter_value": safe_filter_value,
+                "total_matches": 0,
+                "matched_tables": 0,
+                "scanned_tables": 0,
+                "details": [],
+                "errors": [],
+            }
+
+        details: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
+        scanned_tables = 0
+        total_matches = 0
+
+        for db_item in self.list_databases():
+            db_key = str(db_item.get("key") or "").strip()
+            if not db_key or db_key == "ui_classifications":
+                continue
+            try:
+                tables = self.list_tables(db_key)
+            except Exception as exc:
+                errors.append({"db": db_key, "table": "*", "error": str(exc)})
+                continue
+
+            for table in tables:
+                scanned_tables += 1
+                try:
+                    columns = self.get_table_columns(db_key, table)
+                    col_names = [str(c.get("name") or "").strip() for c in columns]
+                    if safe_filter_col not in col_names:
+                        continue
+                    pk_cols = [str(c.get("name") or "").strip() for c in columns if c.get("pk")]
+                    key_col = pk_cols[0] if pk_cols else "__rowid__"
+                    with db_manager.connect(db_key, readonly=True) as conn:
+                        count_row = conn.execute(
+                            f'SELECT COUNT(*) AS c FROM "{table}" WHERE CAST("{safe_filter_col}" AS TEXT) = ?',
+                            [safe_filter_value],
+                        ).fetchone()
+                        matched = int(count_row["c"] if count_row else 0)
+                        if matched <= 0:
+                            continue
+                        total_matches += matched
+                        if key_col == "__rowid__":
+                            sample_rows = conn.execute(
+                                f'''
+                                SELECT CAST(rowid AS TEXT) AS sample_key
+                                FROM "{table}"
+                                WHERE CAST("{safe_filter_col}" AS TEXT) = ?
+                                ORDER BY rowid DESC
+                                LIMIT ?
+                                ''',
+                                [safe_filter_value, max(1, min(sample_limit, 20))],
+                            ).fetchall()
+                        else:
+                            sample_rows = conn.execute(
+                                f'''
+                                SELECT CAST("{key_col}" AS TEXT) AS sample_key
+                                FROM "{table}"
+                                WHERE CAST("{safe_filter_col}" AS TEXT) = ?
+                                ORDER BY "{key_col}" DESC
+                                LIMIT ?
+                                ''',
+                                [safe_filter_value, max(1, min(sample_limit, 20))],
+                            ).fetchall()
+                    details.append(
+                        {
+                            "db": db_key,
+                            "table": table,
+                            "key_col": key_col,
+                            "matched": matched,
+                            "sample_keys": [str(r["sample_key"]) for r in sample_rows if str(r["sample_key"]).strip()],
+                        }
+                    )
+                except Exception as exc:
+                    errors.append({"db": db_key, "table": str(table), "error": str(exc)})
+
+        return {
+            "filter_col": safe_filter_col,
+            "filter_value": safe_filter_value,
+            "total_matches": int(total_matches),
+            "matched_tables": len(details),
+            "scanned_tables": int(scanned_tables),
+            "details": details,
+            "errors": errors,
+        }
+
+    def list_distinct_values_across_databases(
+        self,
+        *,
+        column: str,
+        query: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        safe_column = str(column or "").strip()
+        safe_query = str(query or "").strip()
+        safe_limit = max(1, min(int(limit), 300))
+        if not safe_column:
+            return {"column": safe_column, "values": [], "errors": []}
+
+        values: set[str] = set()
+        errors: list[dict[str, str]] = []
+
+        for db_item in self.list_databases():
+            db_key = str(db_item.get("key") or "").strip()
+            if not db_key or db_key == "ui_classifications":
+                continue
+            try:
+                tables = self.list_tables(db_key)
+            except Exception as exc:
+                errors.append({"db": db_key, "table": "*", "error": str(exc)})
+                continue
+
+            for table in tables:
+                try:
+                    columns = self.get_table_columns(db_key, table)
+                    col_names = [str(c.get("name") or "").strip() for c in columns]
+                    if safe_column not in col_names:
+                        continue
+                    with db_manager.connect(db_key, readonly=True) as conn:
+                        where = [f'"{safe_column}" IS NOT NULL', f'CAST("{safe_column}" AS TEXT) <> \'\'']
+                        params: list[Any] = []
+                        if safe_query:
+                            where.append(f'CAST("{safe_column}" AS TEXT) LIKE ?')
+                            params.append(f"%{safe_query}%")
+                        where_sql = f"WHERE {' AND '.join(where)}"
+                        rows = conn.execute(
+                            f'''
+                            SELECT DISTINCT CAST("{safe_column}" AS TEXT) AS v
+                            FROM "{table}"
+                            {where_sql}
+                            ORDER BY v ASC
+                            LIMIT ?
+                            ''',
+                            [*params, safe_limit],
+                        ).fetchall()
+                    for row in rows:
+                        value = str(row["v"]).strip()
+                        if value:
+                            values.add(value)
+                    if len(values) >= safe_limit:
+                        break
+                except Exception as exc:
+                    errors.append({"db": db_key, "table": str(table), "error": str(exc)})
+            if len(values) >= safe_limit:
+                break
+
+        output = sorted(values)
+        if safe_query:
+            output.sort(key=lambda item: (0 if item == safe_query else 1 if item.startswith(safe_query) else 2, item))
+        return {
+            "column": safe_column,
+            "values": output[:safe_limit],
+            "errors": errors,
+        }
+
+    def delete_by_column_value_across_databases_to_recycle_bin(
+        self,
+        *,
+        filter_col: str,
+        filter_value: str,
+    ) -> dict[str, Any]:
+        safe_filter_col = str(filter_col or "").strip()
+        safe_filter_value = str(filter_value or "").strip()
+        if not safe_filter_col or not safe_filter_value:
+            return {
+                "filter_col": safe_filter_col,
+                "filter_value": safe_filter_value,
+                "deleted": 0,
+                "details": [],
+                "errors": [],
+                "scanned_tables": 0,
+            }
+
+        deleted_total = 0
+        details: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
+        scanned_tables = 0
+
+        for db_item in self.list_databases():
+            db_key = str(db_item.get("key") or "").strip()
+            if not db_key or db_key == "ui_classifications":
+                continue
+            try:
+                tables = self.list_tables(db_key)
+            except Exception as exc:
+                errors.append({"db": db_key, "table": "*", "error": str(exc)})
+                continue
+
+            for table in tables:
+                scanned_tables += 1
+                try:
+                    columns = self.get_table_columns(db_key, table)
+                    col_names = [str(c.get("name") or "").strip() for c in columns]
+                    if safe_filter_col not in col_names:
+                        continue
+                    result = self.delete_rows_by_column_value_to_recycle_bin(
+                        db_key=db_key,
+                        table=table,
+                        filter_col=safe_filter_col,
+                        filter_value=safe_filter_value,
+                    )
+                    deleted = int(result.get("deleted", 0) or 0)
+                    if deleted > 0:
+                        details.append({"db": db_key, "table": table, "deleted": deleted})
+                        deleted_total += deleted
+                except Exception as exc:
+                    errors.append({"db": db_key, "table": str(table), "error": str(exc)})
+
+        return {
+            "filter_col": safe_filter_col,
+            "filter_value": safe_filter_value,
+            "deleted": int(deleted_total),
+            "details": details,
+            "errors": errors,
+            "scanned_tables": int(scanned_tables),
+        }
+
     def list_recycle_bin(self, *, limit: int = 200) -> list[dict[str, Any]]:
         with db_manager.connect("ui_classifications", readonly=True) as conn:
             rows = conn.execute(
@@ -508,14 +807,14 @@ class ExplorerRepository:
 
                 step_name = str(out.get("step_name") or "").strip()
                 session_id = str(out.get("session_id") or "").strip()
-                run_id = str(out.get("run_id") or "").strip()
+                workflow_run_id = str(out.get("workflow_run_id") or "").strip()
                 created_at = str(out.get("created_at") or "").strip()
 
                 where = ["step_name = ?"]
                 params: list[Any] = [step_name]
-                if run_id:
-                    where.append("run_id = ?")
-                    params.append(run_id)
+                if workflow_run_id:
+                    where.append("workflow_run_id = ?")
+                    params.append(workflow_run_id)
                 elif session_id:
                     where.append("session_id = ?")
                     params.append(session_id)

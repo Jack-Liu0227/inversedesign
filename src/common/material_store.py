@@ -85,12 +85,17 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     }
     if "recommended_action" not in existing_columns:
         conn.execute("ALTER TABLE material_samples ADD COLUMN recommended_action TEXT NOT NULL DEFAULT ''")
+    if "workflow_run_id" not in existing_columns:
+        conn.execute("ALTER TABLE material_samples ADD COLUMN workflow_run_id TEXT NOT NULL DEFAULT ''")
+    if "run_id" in existing_columns:
+        conn.execute("UPDATE material_samples SET workflow_run_id = run_id WHERE workflow_run_id = ''")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_samples_valid_round ON material_samples(is_valid, round_index DESC)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_samples_goal_material ON material_samples(material_type, is_valid)"
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_samples_workflow_run_id ON material_samples(workflow_run_id, id DESC)")
     conn.execute(
         """
         CREATE VIEW IF NOT EXISTS retrieval_samples_view AS

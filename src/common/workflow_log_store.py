@@ -55,7 +55,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             trace_id TEXT,
             workflow_name TEXT NOT NULL,
             session_id TEXT,
-            run_id TEXT,
+            workflow_run_id TEXT,
             user_id TEXT,
             step_name TEXT,
             event_type TEXT NOT NULL,
@@ -70,7 +70,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_workflow_io_logs_session_created ON workflow_io_logs(session_id, created_at DESC)"
     )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_workflow_io_logs_run_created ON workflow_io_logs(run_id, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_workflow_io_logs_workflow_run_created ON workflow_io_logs(workflow_run_id, created_at DESC)")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_workflow_io_logs_user_created ON workflow_io_logs(user_id, created_at DESC)"
     )
@@ -85,7 +85,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             trace_id TEXT,
             workflow_name TEXT NOT NULL,
             session_id TEXT,
-            run_id TEXT,
+            workflow_run_id TEXT,
             user_id TEXT,
             step_name TEXT NOT NULL,
             status TEXT NOT NULL,
@@ -101,7 +101,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_workflow_step_logs_trace_created ON workflow_step_logs(trace_id, created_at DESC)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workflow_step_logs_run_created ON workflow_step_logs(run_id, created_at DESC)"
+        "CREATE INDEX IF NOT EXISTS idx_workflow_step_logs_workflow_run_created ON workflow_step_logs(workflow_run_id, created_at DESC)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_workflow_step_logs_step_created ON workflow_step_logs(step_name, created_at DESC)"
@@ -129,7 +129,7 @@ def log_workflow_event(
     workflow_name: str,
     trace_id: Optional[str],
     session_id: Optional[str],
-    run_id: Optional[str],
+    workflow_run_id: Optional[str],
     user_id: Optional[str],
     step_name: Optional[str],
     event_type: str,
@@ -140,12 +140,15 @@ def log_workflow_event(
 ) -> Optional[int]:
     if not _enabled():
         return None
+    normalized_workflow_run_id = str(workflow_run_id or "").strip() or str(session_id or "").strip() or str(trace_id or "").strip()
+    if not normalized_workflow_run_id:
+        return None
     conn = _connect()
     try:
         cursor = conn.execute(
             """
             INSERT INTO workflow_io_logs (
-                created_at, trace_id, workflow_name, session_id, run_id, user_id,
+                created_at, trace_id, workflow_name, session_id, workflow_run_id, user_id,
                 step_name, event_type, payload_json, latency_ms, success, error_text
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -155,7 +158,7 @@ def log_workflow_event(
                 trace_id,
                 workflow_name,
                 session_id,
-                run_id,
+                normalized_workflow_run_id,
                 user_id,
                 step_name,
                 event_type,
@@ -193,7 +196,7 @@ def log_workflow_step(
     workflow_name: str,
     trace_id: Optional[str],
     session_id: Optional[str],
-    run_id: Optional[str],
+    workflow_run_id: Optional[str],
     user_id: Optional[str],
     step_name: str,
     status: str,
@@ -205,12 +208,15 @@ def log_workflow_step(
 ) -> Optional[int]:
     if not _enabled():
         return None
+    normalized_workflow_run_id = str(workflow_run_id or "").strip() or str(session_id or "").strip() or str(trace_id or "").strip()
+    if not normalized_workflow_run_id:
+        return None
     conn = _connect()
     try:
         cursor = conn.execute(
             """
             INSERT INTO workflow_step_logs (
-                created_at, trace_id, workflow_name, session_id, run_id, user_id,
+                created_at, trace_id, workflow_name, session_id, workflow_run_id, user_id,
                 step_name, status, input_json, output_json, latency_ms, success, error_text
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -220,7 +226,7 @@ def log_workflow_step(
                 trace_id,
                 workflow_name,
                 session_id,
-                run_id,
+                normalized_workflow_run_id,
                 user_id,
                 step_name,
                 status,

@@ -14,6 +14,10 @@
         <input name="session_id" value="{{ query.session_id }}" placeholder="session_id (trace use same value)" />
       </label>
       <label>
+        <span>Workflow Run ID</span>
+        <input name="workflow_run_id" value="{{ query.workflow_run_id }}" placeholder="workflow_run_id" />
+      </label>
+      <label>
         <span>Step</span>
         <select id="trace-step" name="step_name" onchange="handleToolTraceCascade('step')">
           <option value="">all</option>

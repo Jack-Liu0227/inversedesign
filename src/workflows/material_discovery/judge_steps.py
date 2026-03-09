@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections import Counter
 from typing import Any
 
@@ -15,10 +14,11 @@ from src.common import (
     next_round_index,
     upsert_iteration_doc_context,
 )
+from src.common.prompt_formatting import format_rationality_pairs
 from src.schemas import AgentRationalityOutput
 
 from .agent_runtime import run_agent_for_json
-from .common import as_workflow_input, run_id_from_step_input, session_id_from_step_input, trace_id
+from .common import as_workflow_input, effective_workflow_run_id, session_id_from_step_input, trace_id
 from .material_normalization import dict_or_empty, list_or_empty, normalize_composition, normalize_processing
 
 _ROUND_BY_RUN_ID: dict[str, int] = {}
@@ -36,10 +36,17 @@ def _normalize_eval_item(item: dict[str, Any]) -> dict[str, Any]:
     action = str(item.get("recommended_action", "drop")).strip().lower()
     if action not in {"keep", "revise", "drop"}:
         action = "drop"
-    cleaned = dict_or_empty(item.get("cleaned_candidate", {}))
-    if cleaned:
-        cleaned["composition"] = normalize_composition(cleaned.get("composition", {}))
-        cleaned["processing"] = normalize_processing(cleaned.get("processing", {}))
+    cleaned_raw = dict_or_empty(item.get("cleaned_candidate", {}))
+    cleaned: dict[str, Any] = {}
+    if cleaned_raw:
+        # Keep cleaned_candidate strictly aligned with RecommenderCandidate schema.
+        cleaned = {
+            "composition": normalize_composition(cleaned_raw.get("composition", {})),
+            "processing": normalize_processing(cleaned_raw.get("processing", {})),
+            "score": float(cleaned_raw.get("score", 0.0) or 0.0),
+            "reason": str(cleaned_raw.get("reason", "") or "").strip(),
+            "expected_tradeoff": str(cleaned_raw.get("expected_tradeoff", "") or "").strip(),
+        }
     return {
         "candidate_index": int(item.get("candidate_index", -1)),
         "is_valid": bool(item.get("is_valid", False)),
@@ -52,32 +59,41 @@ def _normalize_eval_item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def judge_with_agent(step_input: StepInput) -> StepOutput:
-    request = as_workflow_input(step_input.input)
-    routed_output = step_input.previous_step_outputs.get("Router Agent")
     predictor_output = step_input.previous_step_outputs.get("Predictor Agent")
 
-    routed = dict_or_empty(getattr(routed_output, "content", None))
     predictor = dict_or_empty(getattr(predictor_output, "content", None))
 
-    material_type = str(routed.get("resolved_material_type", "")).strip().lower()
     candidates = [c for c in list_or_empty(predictor.get("recommended_candidates", [])) if isinstance(c, dict)]
-    normalized_candidates = []
-    for candidate in candidates:
-        normalized_candidate = dict(candidate)
-        normalized_candidate["processing"] = normalize_processing(candidate.get("processing", {}))
-        normalized_candidates.append(normalized_candidate)
+    normalized_candidates = [
+        {
+            "candidate_index": idx,
+            "composition": normalize_composition(candidate.get("composition", {})),
+            "processing": normalize_processing(candidate.get("processing", {})),
+        }
+        for idx, candidate in enumerate(candidates)
+    ]
     predictions = [p for p in list_or_empty(predictor.get("candidate_predictions", [])) if isinstance(p, dict)]
+    minimal_predictions = [
+        {
+            "candidate_index": int(item.get("candidate_index", -1)),
+            "predicted_values": dict_or_empty(item.get("predicted_values", {})),
+            "confidence": str(item.get("confidence", "low") or "low"),
+            "error": str(item.get("prediction_error", "") or "").strip(),
+        }
+        for item in predictions
+        if isinstance(item.get("candidate_index"), int)
+    ]
 
+    paired_blocks = format_rationality_pairs(normalized_candidates, minimal_predictions, max_process_chars=260)
     prompt = (
         "Judge rationality of candidates and predictions.\n"
         "Return ONLY JSON with key evaluations.\n"
         "Each evaluation item must include: candidate_index, is_valid, validity_score, reasons, risk_tags, "
         "recommended_action, cleaned_candidate.\n"
         "If cleaned_candidate.processing is present, it must contain exactly one key: 'heat treatment method'.\n"
-        f"goal={request.goal}\n"
-        f"material_type={material_type}\n"
-        f"candidates={json.dumps(normalized_candidates, ensure_ascii=False)}\n"
-        f"candidate_predictions={json.dumps(predictions, ensure_ascii=False)}"
+        "Only use fields required for judging: composition, processing, predicted_values, confidence, error.\n"
+        "Candidate-prediction pairs:\n"
+        f"{paired_blocks or 'No candidate-prediction pairs.'}"
     )
     raw = run_agent_for_json(
         material_rationality_agent,
@@ -93,6 +109,11 @@ def judge_with_agent(step_input: StepInput) -> StepOutput:
             normalized.append(_normalize_eval_item(item))
         except Exception:
             continue
+    if normalized and len(normalized) != len(normalized_candidates):
+        raise ValueError(
+            "Rationality Judge output count mismatch: "
+            f"expected {len(normalized_candidates)} evaluations, got {len(normalized)}"
+        )
 
     output = AgentRationalityOutput(
         evaluations=normalized,
@@ -114,12 +135,22 @@ def persist_candidates(step_input: StepInput) -> StepOutput:
     candidates = [c for c in list_or_empty(predictor.get("recommended_candidates", [])) if isinstance(c, dict)]
     predictions = [p for p in list_or_empty(predictor.get("candidate_predictions", [])) if isinstance(p, dict)]
     evaluations = [e for e in list_or_empty(judge.get("evaluations", [])) if isinstance(e, dict)]
+    if len(predictions) != len(candidates):
+        raise ValueError(
+            "Predictor output count mismatch before persistence: "
+            f"expected {len(candidates)} predictions, got {len(predictions)}"
+        )
+    if len(evaluations) != len(candidates):
+        raise ValueError(
+            "Rationality output count mismatch before persistence: "
+            f"expected {len(candidates)} evaluations, got {len(evaluations)}"
+        )
 
     prediction_map = {int(p["candidate_index"]): p for p in predictions if isinstance(p.get("candidate_index"), int)}
     judge_map = {int(e["candidate_index"]): e for e in evaluations if isinstance(e.get("candidate_index"), int)}
 
     trace = trace_id(step_input, request)
-    workflow_run_id = run_id_from_step_input(step_input) or trace
+    workflow_run_id = effective_workflow_run_id(step_input, request)
     session_id = session_id_from_step_input(step_input) or trace
     db_round = next_round_index(str(workflow_run_id))
     in_memory_round = _ROUND_BY_RUN_ID.get(str(workflow_run_id), 0) + 1
@@ -171,6 +202,7 @@ def persist_candidates(step_input: StepInput) -> StepOutput:
                 iteration=int(round_index),
                 workflow_run_id=str(workflow_run_id),
                 session_id=str(session_id),
+                run_note=str(request.run_note or ""),
             )
         )
 
@@ -183,6 +215,7 @@ def persist_candidates(step_input: StepInput) -> StepOutput:
         round_index=int(round_index),
         goal=request.goal,
         candidates=candidates,
+        predictions=predictions,
         evaluations=evaluations,
         limit=12,
     )

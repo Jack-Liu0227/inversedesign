@@ -64,7 +64,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             workflow_name TEXT NOT NULL,
             session_id TEXT,
-            run_id TEXT,
+            workflow_run_id TEXT,
             user_id TEXT,
             decision TEXT,
             should_stop INTEGER,
@@ -89,8 +89,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         "ON workflow_run_audit(user_id, created_at DESC)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workflow_run_audit_run_created "
-        "ON workflow_run_audit(run_id, created_at DESC)"
+        "CREATE INDEX IF NOT EXISTS idx_workflow_run_audit_workflow_run_created "
+        "ON workflow_run_audit(workflow_run_id, created_at DESC)"
     )
     conn.execute(
         """
@@ -100,7 +100,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             workflow_name TEXT,
             trace_id TEXT,
             session_id TEXT,
-            run_id TEXT,
+            workflow_run_id TEXT,
             execution_id INTEGER,
             step_name TEXT,
             agent_name TEXT,
@@ -121,7 +121,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             workflow_name TEXT,
             trace_id TEXT,
             session_id TEXT,
-            run_id TEXT,
+            workflow_run_id TEXT,
             step_name TEXT,
             agent_name TEXT,
             agent_source TEXT,
@@ -144,8 +144,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         "ON agent_execution_logs(session_id, created_at DESC)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_agent_exec_logs_run_created "
-        "ON agent_execution_logs(run_id, created_at DESC)"
+        "CREATE INDEX IF NOT EXISTS idx_agent_exec_logs_workflow_run_created "
+        "ON agent_execution_logs(workflow_run_id, created_at DESC)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_agent_exec_logs_step_created "
@@ -178,8 +178,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         "ON agent_tool_call_logs(trace_id, created_at DESC)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_agent_tool_logs_run_created "
-        "ON agent_tool_call_logs(run_id, created_at DESC)"
+        "CREATE INDEX IF NOT EXISTS idx_agent_tool_logs_workflow_run_created "
+        "ON agent_tool_call_logs(workflow_run_id, created_at DESC)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_agent_tool_logs_exec_created "
@@ -196,16 +196,19 @@ def create_workflow_run_audit(
     *,
     workflow_name: str,
     session_id: Optional[str],
-    run_id: Optional[str],
+    workflow_run_id: Optional[str],
     user_id: Optional[str],
     input_payload: Dict[str, Any],
 ) -> int:
+    normalized_workflow_run_id = str(workflow_run_id or "").strip() or str(session_id or "").strip()
+    if not normalized_workflow_run_id:
+        raise ValueError("create_workflow_run_audit requires non-empty workflow_run_id or session_id")
     conn = _connect()
     try:
         cur = conn.execute(
             """
             INSERT INTO workflow_run_audit (
-                created_at, workflow_name, session_id, run_id, user_id, input_json
+                created_at, workflow_name, session_id, workflow_run_id, user_id, input_json
             )
             VALUES (?, ?, ?, ?, ?, ?)
             """,
@@ -213,7 +216,7 @@ def create_workflow_run_audit(
                 _utc_now_iso(),
                 workflow_name,
                 session_id,
-                run_id,
+                normalized_workflow_run_id,
                 user_id,
                 _json_dumps(input_payload),
             ),
@@ -261,7 +264,7 @@ def log_workflow_run_audit(
     *,
     workflow_name: str,
     session_id: Optional[str],
-    run_id: Optional[str],
+    workflow_run_id: Optional[str],
     user_id: Optional[str],
     input_payload: Dict[str, Any],
     decision: Optional[str] = None,
@@ -274,7 +277,7 @@ def log_workflow_run_audit(
     audit_id = create_workflow_run_audit(
         workflow_name=workflow_name,
         session_id=session_id,
-        run_id=run_id,
+        workflow_run_id=workflow_run_id,
         user_id=user_id,
         input_payload=input_payload,
     )
@@ -298,7 +301,7 @@ def log_agent_tool_call(
     workflow_name: Optional[str],
     trace_id: Optional[str],
     session_id: Optional[str],
-    run_id: Optional[str],
+    workflow_run_id: Optional[str],
     execution_id: Optional[int],
     step_name: Optional[str],
     agent_name: str,
@@ -309,12 +312,15 @@ def log_agent_tool_call(
     success: bool,
     error_text: Optional[str] = None,
 ) -> Optional[int]:
+    normalized_workflow_run_id = str(workflow_run_id or "").strip() or str(session_id or "").strip() or str(trace_id or "").strip()
+    if not normalized_workflow_run_id:
+        return None
     conn = _connect()
     try:
         cur = conn.execute(
             """
             INSERT INTO agent_tool_call_logs (
-                created_at, workflow_name, trace_id, session_id, run_id, execution_id,
+                created_at, workflow_name, trace_id, session_id, workflow_run_id, execution_id,
                 step_name, agent_name, agent_source, tool_name,
                 tool_args_json, tool_result_json, success, error_text
             )
@@ -325,7 +331,7 @@ def log_agent_tool_call(
                 workflow_name,
                 trace_id,
                 session_id,
-                run_id,
+                normalized_workflow_run_id,
                 execution_id,
                 step_name,
                 agent_name,
@@ -348,7 +354,7 @@ def log_agent_execution(
     workflow_name: Optional[str],
     trace_id: Optional[str],
     session_id: Optional[str],
-    run_id: Optional[str],
+    workflow_run_id: Optional[str],
     step_name: Optional[str],
     agent_name: str,
     agent_source: Optional[str],
@@ -360,12 +366,15 @@ def log_agent_execution(
     latency_ms: Optional[int],
     tool_call_count: int,
 ) -> Optional[int]:
+    normalized_workflow_run_id = str(workflow_run_id or "").strip() or str(session_id or "").strip() or str(trace_id or "").strip()
+    if not normalized_workflow_run_id:
+        return None
     conn = _connect()
     try:
         cur = conn.execute(
             """
             INSERT INTO agent_execution_logs (
-                created_at, workflow_name, trace_id, session_id, run_id, step_name, agent_name, agent_source,
+                created_at, workflow_name, trace_id, session_id, workflow_run_id, step_name, agent_name, agent_source,
                 prompt_text, response_text, response_json, success, error_text, latency_ms, tool_call_count
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -375,7 +384,7 @@ def log_agent_execution(
                 workflow_name,
                 trace_id,
                 session_id,
-                run_id,
+                normalized_workflow_run_id,
                 step_name,
                 agent_name,
                 agent_source,

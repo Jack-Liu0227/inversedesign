@@ -21,17 +21,25 @@ from .material_store import (
     insert_sample_rows,
     next_round_index,
 )
+from .workflow_run_meta_store import list_workflow_run_meta, upsert_workflow_run_meta
 from .material_doc_store import (
+    backfill_iteration_candidate_docs,
     ensure_bootstrap_material_docs,
     ensure_iteration_theory_snapshots,
     fetch_material_doc_context,
     upsert_iteration_doc_context,
     upsert_material_docs_from_dir,
 )
+from .material_doc_retrieval import (
+    ensure_material_doc_segment_index,
+    retrieve_material_doc_segments,
+    sync_material_doc_segments,
+)
 from .db_paths import (
     MATERIAL_AGENT_SHARED_DB_ID,
     MATERIAL_DISCOVERY_WORKFLOW_DB,
     MATERIAL_DISCOVERY_WORKFLOW_DB_ID,
+    MATERIAL_AGENT_SESSION_DB,
     MATERIAL_PREDICTOR_AGENT_DB,
     MATERIAL_RECOMMENDER_AGENT_DB,
     MATERIAL_REVIEW_AGENT_DB,
@@ -66,12 +74,19 @@ __all__ = [
     "fetch_round_samples_context",
     "fetch_valid_samples_context",
     "next_round_index",
+    "upsert_workflow_run_meta",
+    "list_workflow_run_meta",
     "fetch_material_doc_context",
+    "backfill_iteration_candidate_docs",
     "ensure_bootstrap_material_docs",
     "ensure_iteration_theory_snapshots",
     "upsert_iteration_doc_context",
     "upsert_material_docs_from_dir",
+    "ensure_material_doc_segment_index",
+    "retrieve_material_doc_segments",
+    "sync_material_doc_segments",
     "MATERIAL_AGENT_SHARED_DB_ID",
+    "MATERIAL_AGENT_SESSION_DB",
     "MATERIAL_DISCOVERY_WORKFLOW_DB",
     "MATERIAL_DISCOVERY_WORKFLOW_DB_ID",
     "MATERIAL_ROUTER_AGENT_DB",

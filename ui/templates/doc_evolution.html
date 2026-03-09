@@ -2,7 +2,7 @@
 {% block content %}
 <section class="page-head reveal viewer-head">
   <h1>Doc Evolution</h1>
-  <p>Analyze full knowledge evolution by run and round, with full-text view, compare, and batch delete.</p>
+  <p>Analyze principle-first knowledge evolution by run and round, with summaries and theory surfaced before raw trace records.</p>
 </section>
 
 <section class="doc-evo-layout">
@@ -25,7 +25,7 @@
         </select>
       </label>
       <label>
-        <span>Run ID</span>
+        <span>Workflow Run ID</span>
         <select name="workflow_run_id">
           <option value="">all</option>
           {% for rid in run_ids %}
@@ -56,7 +56,7 @@
   <article class="card reveal doc-evo-matrix-card">
     <div class="doc-evo-matrix-head">
       <h3>Knowledge Evolution Matrix</h3>
-      <span class="muted">{{ total_runs }} runs / compare by round snapshots</span>
+      <span class="muted">{{ total_runs }} runs / compare round summaries and theory snapshots</span>
     </div>
     <div class="doc-evo-table-wrap">
       <table class="table doc-evo-table">
@@ -77,7 +77,7 @@
           <tr>
             <td></td>
             <td class="doc-evo-run-col">
-              <div class="doc-evo-run-id">{{ row.run_id }}</div>
+              <div class="doc-evo-run-id">{{ row.workflow_run_id }}</div>
               <div class="doc-evo-run-meta">type={{ row.material_type }}</div>
               <div class="doc-evo-run-meta">rounds={{ row.round_count }}</div>
               <div class="doc-evo-run-meta">session={{ row.session_id }}</div>
@@ -88,7 +88,7 @@
                 <input type="checkbox" class="doc-cell-check"
                   data-doc-ids='{{ cell.doc_ids|tojson }}'
                   data-full-text='{{ cell.full_text|tojson }}'
-                  data-cell-label='{{ ("Bootstrap | " ~ row.run_id)|tojson }}'
+                  data-cell-label='{{ ("Bootstrap | " ~ row.workflow_run_id)|tojson }}'
                   data-created-at='{{ cell.created_at }}'
                 />
                 <span class="pill">chunks={{ cell.chunk_count }}</span>
@@ -102,7 +102,7 @@
                   onclick='openDocEvolutionCell(this)'
                   data-doc-ids='{{ cell.doc_ids|tojson }}'
                   data-full-text='{{ cell.full_text|tojson }}'
-                  data-cell-label='{{ ("Bootstrap | " ~ row.run_id)|tojson }}'
+                  data-cell-label='{{ ("Bootstrap | " ~ row.workflow_run_id)|tojson }}'
                   data-created-at='{{ cell.created_at }}'
                 >Open</button>
               </div>
@@ -117,7 +117,7 @@
                   <input type="checkbox" class="doc-cell-check"
                     data-doc-ids='{{ round_cell.doc_ids|tojson }}'
                     data-full-text='{{ round_cell.full_text|tojson }}'
-                    data-cell-label='{{ ("Round " ~ idx ~ " | " ~ row.run_id)|tojson }}'
+                    data-cell-label='{{ ("Round " ~ idx ~ " | " ~ row.workflow_run_id)|tojson }}'
                     data-created-at='{{ round_cell.created_at }}'
                   />
                   <span class="pill">chunks={{ round_cell.chunk_count }}</span>
@@ -128,7 +128,7 @@
                     onclick='openDocEvolutionCell(this)'
                     data-doc-ids='{{ round_cell.doc_ids|tojson }}'
                     data-full-text='{{ round_cell.full_text|tojson }}'
-                    data-cell-label='{{ ("Round " ~ idx ~ " | " ~ row.run_id)|tojson }}'
+                    data-cell-label='{{ ("Round " ~ idx ~ " | " ~ row.workflow_run_id)|tojson }}'
                     data-created-at='{{ round_cell.created_at }}'
                   >Open</button>
                 </div>

@@ -2,7 +2,25 @@
   <h3>Records</h3>
   <div class="viewer-actions">
     <span class="muted">{{ db }} / {{ table }} / {{ total }} rows / sort={{ sort_order }}</span>
+    <label class="record-check-wrap">
+      <input
+        type="checkbox"
+        id="viewer-select-all"
+        onchange="
+          const panel = document.getElementById('viewer-results');
+          if (!panel) return;
+          panel.querySelectorAll('.record-check').forEach((el) => { el.checked = this.checked; });
+        "
+      />
+      <span>Select All</span>
+    </label>
     <button type="button" class="ghost-btn" onclick='batchDeleteSelected({{ db|tojson }}, {{ table|tojson }}, {{ record_key|tojson }})'>Batch Delete</button>
+    {% if active_run_id %}
+    <button type="button" class="ghost-btn" onclick='deleteByRunId({{ db|tojson }}, {{ table|tojson }}, {{ active_run_id|tojson }})'>Delete Run ID</button>
+    <button type="button" class="ghost-btn" onclick='deleteByRunIdAllDbs({{ active_run_id|tojson }})'>Delete Run ID (All DBs)</button>
+    {% else %}
+    <button type="button" class="ghost-btn" onclick='deleteByRunIdAllDbs("")'>Delete Run ID (All DBs)</button>
+    {% endif %}
   </div>
 </div>
 <div class="viewer-list">
@@ -10,7 +28,31 @@
   <div class="viewer-item">
     <div class="viewer-item-top">
       <label class="record-check-wrap">
-        <input type="checkbox" class="record-check" value="{{ rec.key_val }}" />
+        <input
+          type="checkbox"
+          class="record-check"
+          value="{{ rec.key_val }}"
+          onchange="
+            const panel = document.getElementById('viewer-results');
+            const master = document.getElementById('viewer-select-all');
+            if (!panel || !master) return;
+            const all = Array.from(panel.querySelectorAll('.record-check'));
+            const selected = all.filter((el) => el.checked);
+            if (all.length === 0) {
+              master.checked = false;
+              master.indeterminate = false;
+            } else if (selected.length === 0) {
+              master.checked = false;
+              master.indeterminate = false;
+            } else if (selected.length === all.length) {
+              master.checked = true;
+              master.indeterminate = false;
+            } else {
+              master.checked = false;
+              master.indeterminate = true;
+            }
+          "
+        />
         <span class="viewer-item-title">{{ rec.label_col }}: {{ rec.label }}</span>
       </label>
       <span class="viewer-item-key">{{ rec.key_col }}={{ rec.key_val }}</span>

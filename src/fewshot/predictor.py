@@ -7,8 +7,8 @@ import re
 
 import pandas as pd
 
-from .data_processing import DataProcessor
 from .dataset_registry import resolve_dataset
+from .material_dataset_pool import load_prediction_pool
 from .model import ModelCaller
 from .parsing import ResultParser
 from .prompting import PromptBuilder
@@ -47,31 +47,36 @@ class FewshotPredictor:
         processing: Optional[Any] = None,
         features: Optional[Any] = None,
         top_k: Optional[int] = None,
+        mounted_workflow_run_ids: Optional[list[str]] = None,
+        current_workflow_run_id: str = "",
     ) -> FewshotPrediction:
         spec = resolve_dataset(material_type)
-        processor = DataProcessor(
-            input_file=str(spec.dataset_path),
-            target_cols=spec.target_cols,
+        pool_rows = load_prediction_pool(
+            material_type=material_type,
+            mounted_workflow_run_ids=mounted_workflow_run_ids or [],
+            current_workflow_run_id=current_workflow_run_id,
         )
-        df = processor.load_data()
-        columns = processor.identify_columns(df)
-        if not columns.element_cols:
-            raise ValueError(f"No composition columns (*wt%/*at%) found in {spec.dataset_path}")
+        if not pool_rows:
+            raise ValueError(f"No prediction pool rows available for material_type='{material_type}'")
 
-        train_df = df.copy()
         train_texts: List[str] = []
         train_targets: List[Dict[str, Any]] = []
-        for _, row in train_df.iterrows():
-            row_comp = processor.format_composition(row, columns.element_cols)
-            row_processing = self._extract_non_empty_fields(row, columns.processing_cols)
-            row_features = self._extract_non_empty_fields(row, columns.feature_cols)
+        for row in pool_rows:
+            row_comp = self._format_input_composition(self._compact_non_empty_dict(dict(row.get("composition") or {})))
+            row_processing = self._compact_non_empty_dict(dict(row.get("processing") or {}))
+            row_features = self._compact_non_empty_dict(dict(row.get("features") or {}))
             row_text = self._build_sample_text(
                 composition=row_comp,
                 processing=row_processing,
                 features=row_features,
             )
+            if not row_text:
+                continue
             train_texts.append(row_text)
-            train_targets.append({col: row.get(col) for col in columns.target_cols})
+            row_targets = self._compact_non_empty_dict(dict(row.get("target_values") or {}))
+            train_targets.append({col: row_targets.get(col) for col in spec.target_cols})
+        if not train_texts:
+            raise ValueError(f"No valid prediction pool rows available for material_type='{material_type}'")
 
         test_comp = self._format_input_composition(composition)
         normalized_processing = self._normalize_context_payload(processing, label="processing")
@@ -108,13 +113,13 @@ class FewshotPredictor:
                 }
             )
             out = {"sample_text": sample_text, "similarity": score}
-            for col in columns.target_cols:
+            for col in spec.target_cols:
                 if pd.notna(props.get(col)):
                     out[col] = float(props[col])
             similar_samples.append(out)
 
         prompt = prompt_builder.build_prompt(
-            target_properties=columns.target_cols,
+            target_properties=spec.target_cols,
             test_sample=test_text,
             reference_samples=reference_samples,
         )
@@ -125,7 +130,7 @@ class FewshotPredictor:
             base_url=self.base_url,
         )
         llm_response = caller.call(prompt)
-        parser = ResultParser(columns.target_cols)
+        parser = ResultParser(spec.target_cols)
         predicted = parser.parse(llm_response)
         confidence = parser.extract_confidence(llm_response) or "low"
 

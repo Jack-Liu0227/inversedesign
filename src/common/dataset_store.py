@@ -30,6 +30,7 @@ class DatasetMaterialRow:
     iteration: int = 0
     workflow_run_id: str = ""
     session_id: str = ""
+    run_note: str = ""
 
 
 def _connect() -> sqlite3.Connection:
@@ -59,6 +60,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             risk_tags_json TEXT NOT NULL,
             workflow_run_id TEXT NOT NULL DEFAULT '',
             session_id TEXT NOT NULL DEFAULT '',
+            run_note TEXT NOT NULL DEFAULT '',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(source, source_name, source_row_key)
         )
@@ -78,6 +80,15 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE material_dataset_rows ADD COLUMN features_json TEXT NOT NULL DEFAULT '{}'")
     if "iteration" not in table_columns:
         conn.execute("ALTER TABLE material_dataset_rows ADD COLUMN iteration INTEGER NOT NULL DEFAULT 0")
+    if "workflow_run_id" not in table_columns:
+        conn.execute("ALTER TABLE material_dataset_rows ADD COLUMN workflow_run_id TEXT NOT NULL DEFAULT ''")
+    if "run_id" in table_columns:
+        conn.execute("UPDATE material_dataset_rows SET workflow_run_id = run_id WHERE workflow_run_id = ''")
+    if "run_note" not in table_columns:
+        conn.execute("ALTER TABLE material_dataset_rows ADD COLUMN run_note TEXT NOT NULL DEFAULT ''")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_material_dataset_workflow_run_id ON material_dataset_rows(workflow_run_id, created_at DESC)"
+    )
 
 
 def insert_dataset_rows(rows: list[DatasetMaterialRow]) -> int:
@@ -92,8 +103,8 @@ def insert_dataset_rows(rows: list[DatasetMaterialRow]) -> int:
                 material_type, source, source_name, source_row_key,
                 composition_json, processing_json, features_json, target_values_json, predicted_values_json, iteration,
                 is_valid, judge_score, judge_reasons_json, risk_tags_json,
-                workflow_run_id, session_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                workflow_run_id, session_id, run_note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -113,6 +124,7 @@ def insert_dataset_rows(rows: list[DatasetMaterialRow]) -> int:
                     json.dumps(row.risk_tags, ensure_ascii=False),
                     row.workflow_run_id,
                     row.session_id,
+                    str(row.run_note or "").strip(),
                 )
                 for row in rows
             ],

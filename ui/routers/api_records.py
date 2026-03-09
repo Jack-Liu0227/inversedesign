@@ -1,11 +1,12 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-from pydantic import BaseModel
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from ui.db.repositories.explorer_repo import ExplorerRepository
 from ui.dependencies import get_explorer_repository
+from ui.services.record_cleanup_service import record_cleanup_service
 
 
 router = APIRouter(prefix="/records", tags=["records"])
@@ -24,6 +25,11 @@ class RestoreRequest(BaseModel):
 
 class PurgeRequest(BaseModel):
     recycle_ids: list[int] = []
+
+
+class CrossDatabaseActionRequest(BaseModel):
+    filter_col: str
+    filter_values: list[str] = Field(default_factory=list)
 
 
 @router.get("/recycle-bin")
@@ -46,6 +52,49 @@ async def batch_delete(
         table=req.source_table,
         key_col=req.key_col,
         key_values=[str(v) for v in req.key_values],
+    )
+
+
+@router.get("/cross-db-suggestions")
+async def cross_db_suggestions(
+    filter_col: str,
+    q: str = "",
+    limit: int = 80,
+    explorer_repository: ExplorerRepository = Depends(get_explorer_repository),
+):
+    return await run_in_threadpool(
+        record_cleanup_service.suggestions,
+        explorer_repository=explorer_repository,
+        filter_col=filter_col,
+        query=q,
+        limit=max(1, min(int(limit), 200)),
+    )
+
+
+@router.post("/cross-db-preview-batch")
+async def cross_db_preview_batch(
+    req: CrossDatabaseActionRequest,
+    explorer_repository: ExplorerRepository = Depends(get_explorer_repository),
+):
+    return await run_in_threadpool(
+        record_cleanup_service.preview_many,
+        explorer_repository=explorer_repository,
+        filter_col=req.filter_col,
+        filter_values=req.filter_values,
+        sample_limit=8,
+    )
+
+
+@router.post("/delete-across-databases")
+async def delete_across_databases(
+    req: CrossDatabaseActionRequest,
+    explorer_repository: ExplorerRepository = Depends(get_explorer_repository),
+):
+    return await run_in_threadpool(
+        record_cleanup_service.delete_many,
+        explorer_repository=explorer_repository,
+        filter_col=req.filter_col,
+        filter_values=req.filter_values,
     )
 
 
