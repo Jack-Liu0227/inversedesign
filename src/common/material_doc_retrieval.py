@@ -23,13 +23,17 @@ _HAS_FTS = True
 _MAX_CHUNK_CHARS = 900
 _OVERLAP_CHARS = 140
 _RRF_K = 60.0
+_SQLITE_TIMEOUT_MS = 30_000
+_SCHEMA_READY = False
 
 
 def _connect() -> sqlite3.Connection:
     db_path: Path = MATERIAL_AGENT_SHARED_DB
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=_SQLITE_TIMEOUT_MS / 1000)
     conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute(f"PRAGMA busy_timeout={_SQLITE_TIMEOUT_MS};")
+    conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
 
 
@@ -75,7 +79,9 @@ def _split_into_segments(text: str, max_chars: int = _MAX_CHUNK_CHARS) -> list[s
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    global _HAS_FTS
+    global _HAS_FTS, _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS material_doc_segments (
@@ -85,7 +91,6 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             source_name TEXT NOT NULL,
             source_kind TEXT NOT NULL DEFAULT 'bootstrap',
             workflow_run_id TEXT NOT NULL DEFAULT '',
-            run_id TEXT NOT NULL DEFAULT '',
             session_id TEXT NOT NULL DEFAULT '',
             round_index INTEGER NOT NULL DEFAULT 0,
             title TEXT NOT NULL,
@@ -112,11 +117,12 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         """
     )
     seg_cols = {str(r[1]).strip().lower() for r in conn.execute("PRAGMA table_info(material_doc_segments)").fetchall() if isinstance(r, tuple) and len(r) > 1}
-    if "run_id" not in seg_cols:
-        conn.execute("ALTER TABLE material_doc_segments ADD COLUMN run_id TEXT NOT NULL DEFAULT ''")
-    conn.execute("UPDATE material_doc_segments SET run_id = workflow_run_id WHERE run_id = ''")
+    if "workflow_run_id" not in seg_cols:
+        conn.execute("ALTER TABLE material_doc_segments ADD COLUMN workflow_run_id TEXT NOT NULL DEFAULT ''")
+    if "run_id" in seg_cols:
+        conn.execute("UPDATE material_doc_segments SET workflow_run_id = run_id WHERE workflow_run_id = ''")
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_doc_segments_run_id_round ON material_doc_segments(run_id, round_index DESC)"
+        "CREATE INDEX IF NOT EXISTS idx_doc_segments_workflow_run_id_round ON material_doc_segments(workflow_run_id, round_index DESC)"
     )
     try:
         conn.execute(
@@ -158,6 +164,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         _HAS_FTS = False
     conn.commit()
+    _SCHEMA_READY = True
 
 
 def ensure_material_doc_segment_index() -> None:
@@ -202,7 +209,7 @@ def sync_material_doc_segments(*, material_type: str) -> int:
         last_id = _last_synced_doc_id(conn, mtype)
         rows = conn.execute(
             """
-            SELECT id, material_type, source_name, source_kind, workflow_run_id, run_id, session_id, round_index, title, content
+            SELECT id, material_type, source_name, source_kind, workflow_run_id, session_id, round_index, title, content
             FROM material_doc_knowledge
             WHERE material_type = ? AND id > ?
             ORDER BY id ASC
@@ -212,10 +219,12 @@ def sync_material_doc_segments(*, material_type: str) -> int:
         inserted = 0
         max_id = last_id
         for row in rows:
+            if not isinstance(row, tuple) or len(row) < 9:
+                continue
             doc_id = int(row[0] or 0)
             max_id = max(max_id, doc_id)
-            title = _normalize_text(row[8])
-            content = str(row[9] or "")
+            title = _normalize_text(row[7])
+            content = str(row[8] or "")
             segments = _split_into_segments(content, max_chars=_MAX_CHUNK_CHARS)
             if not segments:
                 continue
@@ -226,8 +235,8 @@ def sync_material_doc_segments(*, material_type: str) -> int:
                     """
                     INSERT OR IGNORE INTO material_doc_segments (
                         doc_row_id, material_type, source_name, source_kind, workflow_run_id,
-                        run_id, session_id, round_index, title, segment_index, segment_text, segment_hash
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        session_id, round_index, title, segment_index, segment_text, segment_hash
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         doc_id,
@@ -235,9 +244,8 @@ def sync_material_doc_segments(*, material_type: str) -> int:
                         str(row[2] or ""),
                         str(row[3] or ""),
                         str(row[4] or ""),
-                        str(row[5] or row[4] or ""),
-                        str(row[6] or ""),
-                        int(row[7] or 0),
+                        str(row[5] or ""),
+                        int(row[6] or 0),
                         title,
                         idx,
                         seg_text,
@@ -311,10 +319,10 @@ def retrieve_material_doc_segments(
         _ensure_schema(conn)
         params: list[Any] = [mtype]
         where = ["s.material_type = ?"]
-        run_id = str(workflow_run_id or "").strip()
-        if run_id:
+        normalized_workflow_run_id = str(workflow_run_id or "").strip()
+        if normalized_workflow_run_id:
             where.append("(s.source_kind = 'bootstrap' OR (s.source_kind='iteration_feedback' AND s.workflow_run_id = ? AND s.round_index < ?))")
-            params.append(run_id)
+            params.append(normalized_workflow_run_id)
             params.append(int(before_round_index) if before_round_index is not None else 10**9)
         match_q = _to_match_query(query_text)
         rows: list[sqlite3.Row] = []

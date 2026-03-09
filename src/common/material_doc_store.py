@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, sqlite3
+import json, logging, sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,20 +16,24 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 if callable(load_dotenv):
     load_dotenv(dotenv_path=ROOT / ".env", override=False)
 
+logger = logging.getLogger(__name__)
+_SQLITE_TIMEOUT_MS = 30_000
+_REQUIRED_SCHEMA_COLUMNS = {"source_kind", "workflow_run_id", "session_id", "round_index"}
+_SCHEMA_READY = False
+
 _KNOWN_TYPES = {"ti", "steel", "al", "hea", "hea_pitting"}
 _TYPE_ALIAS = {"titanium": "ti", "ti_alloy": "ti", "aluminum": "al", "aluminium": "al", "stainless": "steel", "high_entropy": "hea"}
 _THEORY_FILE = "{material_type}.theory_evolution.md"
-_SUMMARY_FILE = "{run_id}.round{round_index}.summary.md"
-_CANDIDATES_FILE = "{run_id}.round{round_index}.candidates.md"
+_SUMMARY_FILE = "{workflow_run_id}.round{round_index}.summary.md"
+_CANDIDATES_FILE = "{workflow_run_id}.round{round_index}.candidates.md"
 _UPSERT_SQL = (
     "INSERT OR REPLACE INTO material_doc_knowledge (material_type, source_name, chunk_index, source_kind, workflow_run_id, "
-    "run_id, session_id, round_index, title, content, tags_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "session_id, round_index, title, content, tags_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 _CREATE_TABLE_SQL = (
     "CREATE TABLE IF NOT EXISTS material_doc_knowledge ("
     "id INTEGER PRIMARY KEY AUTOINCREMENT, material_type TEXT NOT NULL, source_name TEXT NOT NULL, chunk_index INTEGER NOT NULL, "
     "source_kind TEXT NOT NULL DEFAULT 'bootstrap', workflow_run_id TEXT NOT NULL DEFAULT '', session_id TEXT NOT NULL DEFAULT '', "
-    "run_id TEXT NOT NULL DEFAULT '', "
     "round_index INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL, content TEXT NOT NULL, tags_json TEXT NOT NULL DEFAULT '[]', "
     "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
     "UNIQUE(material_type, source_name, chunk_index, source_kind, workflow_run_id, round_index))"
@@ -37,7 +41,6 @@ _CREATE_TABLE_SQL = (
 _ALTERS = {
     "source_kind": "ALTER TABLE material_doc_knowledge ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'bootstrap'",
     "workflow_run_id": "ALTER TABLE material_doc_knowledge ADD COLUMN workflow_run_id TEXT NOT NULL DEFAULT ''",
-    "run_id": "ALTER TABLE material_doc_knowledge ADD COLUMN run_id TEXT NOT NULL DEFAULT ''",
     "session_id": "ALTER TABLE material_doc_knowledge ADD COLUMN session_id TEXT NOT NULL DEFAULT ''",
     "round_index": "ALTER TABLE material_doc_knowledge ADD COLUMN round_index INTEGER NOT NULL DEFAULT 0",
 }
@@ -53,34 +56,76 @@ class MaterialDocChunk:
     tags: list[str]
     source_kind: str = "bootstrap"
     workflow_run_id: str = ""
-    run_id: str = ""
     session_id: str = ""
     round_index: int = 0
 
 
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(DB_PATH), timeout=_SQLITE_TIMEOUT_MS / 1000)
     conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute(f"PRAGMA busy_timeout={_SQLITE_TIMEOUT_MS};")
+    conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
 
 
+def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    return {
+        str(row[1]).strip().lower()
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        if isinstance(row, tuple) and len(row) > 1
+    }
+
+
+def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+        (str(table_name or "").strip(),),
+    ).fetchone()
+    return bool(row)
+
+
+def _schema_ready_for_reads(conn: sqlite3.Connection) -> bool:
+    try:
+        cols = _table_columns(conn, "material_doc_knowledge")
+    except sqlite3.OperationalError:
+        return False
+    return _REQUIRED_SCHEMA_COLUMNS.issubset(cols)
+
+
 def _ensure_schema(conn: sqlite3.Connection) -> None:
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
     conn.execute(_CREATE_TABLE_SQL)
-    cols = {str(r[1]).strip().lower() for r in conn.execute("PRAGMA table_info(material_doc_knowledge)").fetchall() if isinstance(r, tuple) and len(r) > 1}
+    cols = _table_columns(conn, "material_doc_knowledge")
     for col, sql in _ALTERS.items():
         if col not in cols:
             conn.execute(sql)
-    if "run_id" in {str(r[1]).strip().lower() for r in conn.execute("PRAGMA table_info(material_doc_knowledge)").fetchall() if isinstance(r, tuple) and len(r) > 1}:
-        conn.execute("UPDATE material_doc_knowledge SET run_id = workflow_run_id WHERE run_id = ''")
+    cols = _table_columns(conn, "material_doc_knowledge")
+    if "run_id" in cols:
+        conn.execute("UPDATE material_doc_knowledge SET workflow_run_id = run_id WHERE workflow_run_id = ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_material_doc_type ON material_doc_knowledge(material_type, id DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_material_doc_run_round ON material_doc_knowledge(workflow_run_id, round_index DESC)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_material_doc_run_id_round ON material_doc_knowledge(run_id, round_index DESC)")
+    conn.commit()
+    _SCHEMA_READY = True
+
+
+def _safe_sync_material_doc_segments(*, material_type: str) -> None:
+    try:
+        from src.common.material_doc_retrieval import sync_material_doc_segments
+    except Exception:
+        return
+    try:
+        sync_material_doc_segments(material_type=material_type)
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc).lower():
+            raise
+        logger.warning("Skip material_doc segment sync because database is locked: material_type=%s", material_type)
 
 
 def _chunk_to_params(c: MaterialDocChunk, *, default_source_kind: str) -> tuple[Any, ...]:
     workflow_run_id = str(c.workflow_run_id or "").strip()
-    run_id = str(c.run_id or workflow_run_id).strip()
-    return (c.material_type, c.source_name, int(c.chunk_index), str(c.source_kind or default_source_kind), workflow_run_id, run_id, str(c.session_id or ""), int(c.round_index or 0), c.title, c.content, json.dumps(c.tags, ensure_ascii=False))
+    return (c.material_type, c.source_name, int(c.chunk_index), str(c.source_kind or default_source_kind), workflow_run_id, str(c.session_id or ""), int(c.round_index or 0), c.title, c.content, json.dumps(c.tags, ensure_ascii=False))
 
 
 def _upsert_chunks(conn: sqlite3.Connection, chunks: list[MaterialDocChunk], *, default_source_kind: str) -> None:
@@ -259,7 +304,7 @@ def _derive_theory_backfill_with_llm(
         + evidence_block
     )
     call_session_id = str(session_id or workflow_run_id or f"theory-{material_type}").strip()
-    call_run_id = str(workflow_run_id or "").strip() or None
+    call_workflow_run_id = str(workflow_run_id or "").strip() or None
     start = time.perf_counter()
     try:
         response = material_doc_manager_agent.run(prompt, session_id=call_session_id)
@@ -272,7 +317,7 @@ def _derive_theory_backfill_with_llm(
             workflow_name="material_discovery_workflow",
             trace_id=call_session_id,
             session_id=call_session_id,
-            run_id=call_run_id,
+            workflow_run_id=call_workflow_run_id,
             step_name="Theory Doc Manager",
             agent_name="doc_manager",
             model_id=None,
@@ -294,7 +339,7 @@ def _derive_theory_backfill_with_llm(
             workflow_name="material_discovery_workflow",
             trace_id=call_session_id,
             session_id=call_session_id,
-            run_id=call_run_id,
+            workflow_run_id=call_workflow_run_id,
             step_name="Theory Doc Manager",
             agent_name="doc_manager",
             model_id=None,
@@ -354,7 +399,8 @@ def _extract_round_principles(
 def _load_bootstrap_material_doc(*, material_type: str) -> str:
     conn = _connect()
     try:
-        _ensure_schema(conn)
+        if not _schema_ready_for_reads(conn):
+            return ""
         rows = conn.execute("SELECT title, content FROM material_doc_knowledge WHERE material_type = ? AND source_kind = 'bootstrap' ORDER BY source_name ASC, chunk_index ASC, id ASC", (str(material_type or "").strip().lower(),)).fetchall()
     finally:
         conn.close()
@@ -374,7 +420,8 @@ def _load_previous_theory_snapshot(*, material_type: str, workflow_run_id: str, 
         return ""
     conn = _connect()
     try:
-        _ensure_schema(conn)
+        if not _schema_ready_for_reads(conn):
+            return ""
         row = conn.execute(
             "SELECT content FROM material_doc_knowledge WHERE material_type = ? AND source_kind = 'iteration_feedback' AND workflow_run_id = ? AND source_name = ? AND round_index = ? ORDER BY id DESC LIMIT 1",
             (str(material_type or "").strip().lower(), str(workflow_run_id or "").strip(), _THEORY_FILE.format(material_type=str(material_type or "").strip().lower()), prev_round),
@@ -477,8 +524,6 @@ def ensure_bootstrap_material_docs(*, docs_dir: str | Path | None = None) -> int
 
 
 def upsert_material_docs_from_dir(docs_dir: str | Path | None = None) -> int:
-    from src.common.material_doc_retrieval import sync_material_doc_segments
-
     base = Path(docs_dir) if docs_dir else ROOT / "knowledge" / "material_bootstrap"
     files = sorted([p for p in base.glob("*.md") if p.is_file()]) if base.exists() else []
     if not files:
@@ -498,7 +543,7 @@ def upsert_material_docs_from_dir(docs_dir: str | Path | None = None) -> int:
         _upsert_chunks(conn, rows, default_source_kind="bootstrap")
         conn.commit()
         for mtype in sorted({str(r.material_type or "").strip().lower() for r in rows if str(r.material_type or "").strip()}):
-            sync_material_doc_segments(material_type=mtype)
+            _safe_sync_material_doc_segments(material_type=mtype)
         return len(rows)
     finally:
         conn.close()
@@ -514,25 +559,25 @@ def ensure_iteration_theory_snapshots(*, max_rounds: int = 200) -> int:
         ).fetchall()
         inserted: list[MaterialDocChunk] = []
         for material_type, workflow_run_id, session_id, round_index in rounds:
-            mtype, run_id, sess, rdx = str(material_type or "").strip().lower(), str(workflow_run_id or "").strip(), str(session_id or "").strip(), int(round_index or 0)
-            if not mtype or not run_id or rdx <= 0:
+            mtype, workflow_run_id_value, sess, rdx = str(material_type or "").strip().lower(), str(workflow_run_id or "").strip(), str(session_id or "").strip(), int(round_index or 0)
+            if not mtype or not workflow_run_id_value or rdx <= 0:
                 continue
             theory_file = _THEORY_FILE.format(material_type=mtype)
             exists = conn.execute(
                 "SELECT 1 FROM material_doc_knowledge WHERE material_type = ? AND source_kind = 'iteration_feedback' AND workflow_run_id = ? AND round_index = ? AND source_name = ? LIMIT 1",
-                (mtype, run_id, rdx, theory_file),
+                (mtype, workflow_run_id_value, rdx, theory_file),
             ).fetchone()
             if exists:
                 continue
             summary = conn.execute(
                 "SELECT content FROM material_doc_knowledge WHERE source_kind='iteration_feedback' AND workflow_run_id=? AND round_index=? AND source_name=? ORDER BY id DESC LIMIT 1",
-                (run_id, rdx, _SUMMARY_FILE.format(run_id=run_id, round_index=rdx)),
+                (workflow_run_id_value, rdx, _SUMMARY_FILE.format(workflow_run_id=workflow_run_id_value, round_index=rdx)),
             ).fetchone()
             candidates = conn.execute(
                 "SELECT title, content FROM material_doc_knowledge WHERE source_kind='iteration_feedback' AND workflow_run_id=? AND round_index=? AND source_name=? ORDER BY chunk_index ASC, id ASC",
-                (run_id, rdx, _CANDIDATES_FILE.format(run_id=run_id, round_index=rdx)),
+                (workflow_run_id_value, rdx, _CANDIDATES_FILE.format(workflow_run_id=workflow_run_id_value, round_index=rdx)),
             ).fetchall()
-            baseline = _load_previous_theory_snapshot(material_type=mtype, workflow_run_id=run_id, round_index=rdx) or _load_bootstrap_material_doc(material_type=mtype)
+            baseline = _load_previous_theory_snapshot(material_type=mtype, workflow_run_id=workflow_run_id_value, round_index=rdx) or _load_bootstrap_material_doc(material_type=mtype)
             if not baseline:
                 baseline = f"# {mtype.upper()} Knowledge Baseline\n\nNo bootstrap content found."
             summary_text = str(summary[0] or "").strip() if summary else ""
@@ -541,13 +586,13 @@ def ensure_iteration_theory_snapshots(*, max_rounds: int = 200) -> int:
                 goal_text=summary_text,
                 risk_texts=_extract_risk_snippets(candidates),
                 reason_texts=[summary_text],
-                workflow_run_id=run_id,
+                workflow_run_id=workflow_run_id_value,
                 session_id=sess,
                 round_index=rdx,
             )
             bullets = "\n".join([f"- {x}" for x in lines]) if lines else "- Keep baseline theoretical guidance."
             content = baseline.strip() + f"\n\n---\n\n## Round {rdx} Theory Update (Backfilled)\n\nBackfilled theory notes for this round:\n\n{bullets}\n"
-            inserted.append(MaterialDocChunk(material_type=mtype, source_name=theory_file, chunk_index=0, source_kind="iteration_feedback", workflow_run_id=run_id, run_id=run_id, session_id=sess, round_index=rdx, title=f"Round {rdx} Theory Snapshot", content=content, tags=["iteration_feedback", "theory_snapshot", mtype, f"round_{rdx}", "backfilled"]))
+            inserted.append(MaterialDocChunk(material_type=mtype, source_name=theory_file, chunk_index=0, source_kind="iteration_feedback", workflow_run_id=workflow_run_id_value, session_id=sess, round_index=rdx, title=f"Round {rdx} Theory Snapshot", content=content, tags=["iteration_feedback", "theory_snapshot", mtype, f"round_{rdx}", "backfilled"]))
         if not inserted:
             return 0
         _upsert_chunks(conn, inserted, default_source_kind="iteration_feedback")
@@ -561,12 +606,15 @@ def backfill_iteration_candidate_docs(*, max_rounds: int = 500) -> int:
     conn = _connect()
     try:
         _ensure_schema(conn)
+        if not _table_exists(conn, "material_samples"):
+            logger.info("Skip iteration candidate doc backfill because material_samples table does not exist yet.")
+            return 0
         rounds = conn.execute(
             """
-            SELECT workflow_run_id, run_id, session_id, material_type, round_index, goal
+            SELECT workflow_run_id, session_id, material_type, round_index, goal
             FROM material_samples
             WHERE workflow_run_id <> '' AND round_index > 0
-            GROUP BY workflow_run_id, run_id, session_id, material_type, round_index, goal
+            GROUP BY workflow_run_id, session_id, material_type, round_index, goal
             ORDER BY workflow_run_id DESC, round_index ASC
             LIMIT ?
             """,
@@ -574,9 +622,8 @@ def backfill_iteration_candidate_docs(*, max_rounds: int = 500) -> int:
         ).fetchall()
         rows_to_upsert: list[MaterialDocChunk] = []
         touched_material_types: set[str] = set()
-        for workflow_run_id, run_id, session_id, material_type, round_index, goal in rounds:
+        for workflow_run_id, session_id, material_type, round_index, goal in rounds:
             workflow_run_id = str(workflow_run_id or "").strip()
-            run_id = str(run_id or workflow_run_id).strip()
             session_id = str(session_id or "").strip()
             material_type = str(material_type or "").strip().lower()
             round_index = int(round_index or 0)
@@ -634,11 +681,10 @@ def backfill_iteration_candidate_docs(*, max_rounds: int = 500) -> int:
             rows_to_upsert.append(
                 MaterialDocChunk(
                     material_type=material_type,
-                    source_name=_SUMMARY_FILE.format(run_id=run_id, round_index=round_index),
+                    source_name=_SUMMARY_FILE.format(workflow_run_id=workflow_run_id, round_index=round_index),
                     chunk_index=0,
                     source_kind="iteration_feedback",
                     workflow_run_id=workflow_run_id,
-                    run_id=run_id,
                     session_id=session_id,
                     round_index=round_index,
                     title=f"Round {round_index} Summary",
@@ -687,12 +733,11 @@ def backfill_iteration_candidate_docs(*, max_rounds: int = 500) -> int:
                 rows_to_upsert.append(
                     MaterialDocChunk(
                         material_type=material_type,
-                        source_name=_CANDIDATES_FILE.format(run_id=run_id, round_index=round_index),
+                    source_name=_CANDIDATES_FILE.format(workflow_run_id=workflow_run_id, round_index=round_index),
                         chunk_index=int(candidate_index or 0) + 1,
                         source_kind="iteration_feedback",
-                        workflow_run_id=workflow_run_id,
-                        run_id=run_id,
-                        session_id=session_id,
+                    workflow_run_id=workflow_run_id,
+                    session_id=session_id,
                         round_index=round_index,
                         title=f"Round {round_index} Candidate {int(candidate_index or 0)}",
                         content=content,
@@ -703,37 +748,30 @@ def backfill_iteration_candidate_docs(*, max_rounds: int = 500) -> int:
             return 0
         _upsert_chunks(conn, rows_to_upsert, default_source_kind="iteration_feedback")
         conn.commit()
-        try:
-            from src.common.material_doc_retrieval import sync_material_doc_segments
-        except Exception:
-            sync_material_doc_segments = None
-        if callable(sync_material_doc_segments):
-            for material_type in sorted(touched_material_types):
-                sync_material_doc_segments(material_type=material_type)
+        for material_type in sorted(touched_material_types):
+            _safe_sync_material_doc_segments(material_type=material_type)
         return len(rows_to_upsert)
     finally:
         conn.close()
 
 
 def upsert_iteration_doc_context(*, material_type: str, workflow_run_id: str, session_id: str, round_index: int, goal: str, candidates: list[dict[str, Any]], predictions: list[dict[str, Any]], evaluations: list[dict[str, Any]], limit: int = 10) -> int:
-    from src.common.material_doc_retrieval import sync_material_doc_segments
-
     ensure_bootstrap_material_docs()
-    mtype, run_id, sess, rdx = str(material_type or "").strip().lower(), str(workflow_run_id or "").strip(), str(session_id or "").strip(), max(1, int(round_index))
-    if not mtype or not run_id:
+    mtype, workflow_run_id_value, sess, rdx = str(material_type or "").strip().lower(), str(workflow_run_id or "").strip(), str(session_id or "").strip(), max(1, int(round_index))
+    if not mtype or not workflow_run_id_value:
         return 0
     eval_map = {item["candidate_index"]: item for item in evaluations if isinstance(item, dict) and isinstance(item.get("candidate_index"), int)}
     pred_map = {item["candidate_index"]: item for item in predictions if isinstance(item, dict) and isinstance(item.get("candidate_index"), int)}
     principle_lines = _extract_round_principles(
         material_type=mtype,
-        workflow_run_id=run_id,
+        workflow_run_id=workflow_run_id_value,
         session_id=sess,
         round_index=rdx,
         goal=goal,
         candidates=candidates,
         evaluations=evaluations,
     )
-    rows = [MaterialDocChunk(material_type=mtype, source_name=_SUMMARY_FILE.format(run_id=run_id, round_index=rdx), chunk_index=0, source_kind="iteration_feedback", workflow_run_id=run_id, run_id=run_id, session_id=sess, round_index=rdx, title=f"Round {rdx} Summary", content=_build_round_summary_content(goal=goal, principle_lines=principle_lines, evaluations=evaluations), tags=["iteration_feedback", mtype, f"round_{rdx}", "principle_summary"])]
+    rows = [MaterialDocChunk(material_type=mtype, source_name=_SUMMARY_FILE.format(workflow_run_id=workflow_run_id_value, round_index=rdx), chunk_index=0, source_kind="iteration_feedback", workflow_run_id=workflow_run_id_value, session_id=sess, round_index=rdx, title=f"Round {rdx} Summary", content=_build_round_summary_content(goal=goal, principle_lines=principle_lines, evaluations=evaluations), tags=["iteration_feedback", mtype, f"round_{rdx}", "principle_summary"])]
     for idx, candidate in enumerate(candidates[: max(1, int(limit))]):
         cand, ev = candidate if isinstance(candidate, dict) else {}, eval_map.get(idx, {})
         pred = pred_map.get(idx, {})
@@ -753,21 +791,20 @@ def upsert_iteration_doc_context(*, material_type: str, workflow_run_id: str, se
             f"Is valid: {bool(ev.get('is_valid', False)) if isinstance(ev, dict) else False}\nValidity score: {float(ev.get('validity_score', 0.0) or 0.0) if isinstance(ev, dict) else 0.0}\n"
             f"Recommended action: {action}\nReasons: {reasons}\nRisk tags: {risk_tags}\n"
         )
-        rows.append(MaterialDocChunk(material_type=mtype, source_name=_CANDIDATES_FILE.format(run_id=run_id, round_index=rdx), chunk_index=idx + 1, source_kind="iteration_feedback", workflow_run_id=run_id, run_id=run_id, session_id=sess, round_index=rdx, title=f"Round {rdx} Candidate {idx}", content=content, tags=["iteration_feedback", mtype, f"round_{rdx}", action or "drop"]))
+        rows.append(MaterialDocChunk(material_type=mtype, source_name=_CANDIDATES_FILE.format(workflow_run_id=workflow_run_id_value, round_index=rdx), chunk_index=idx + 1, source_kind="iteration_feedback", workflow_run_id=workflow_run_id_value, session_id=sess, round_index=rdx, title=f"Round {rdx} Candidate {idx}", content=content, tags=["iteration_feedback", mtype, f"round_{rdx}", action or "drop"]))
     rows.append(
         MaterialDocChunk(
             material_type=mtype,
             source_name=_THEORY_FILE.format(material_type=mtype),
             chunk_index=0,
             source_kind="iteration_feedback",
-            workflow_run_id=run_id,
-            run_id=run_id,
+            workflow_run_id=workflow_run_id_value,
             session_id=sess,
             round_index=rdx,
             title=f"Round {rdx} Theory Snapshot",
             content=_build_round_theory_snapshot(
                 material_type=mtype,
-                workflow_run_id=run_id,
+                workflow_run_id=workflow_run_id_value,
                 session_id=sess,
                 round_index=rdx,
                 goal=goal,
@@ -783,7 +820,7 @@ def upsert_iteration_doc_context(*, material_type: str, workflow_run_id: str, se
         _ensure_schema(conn)
         _upsert_chunks(conn, rows, default_source_kind="iteration_feedback")
         conn.commit()
-        sync_material_doc_segments(material_type=mtype)
+        _safe_sync_material_doc_segments(material_type=mtype)
         return len(rows)
     finally:
         conn.close()
@@ -791,20 +828,21 @@ def upsert_iteration_doc_context(*, material_type: str, workflow_run_id: str, se
 
 def fetch_material_doc_context(material_type: str, limit: int = 8, *, workflow_run_id: str = "", before_round_index: int | None = None) -> list[dict[str, Any]]:
     ensure_bootstrap_material_docs()
-    mtype, run_id, capped = str(material_type or "").strip().lower(), str(workflow_run_id or "").strip(), max(1, int(limit))
+    mtype, workflow_run_id_value, capped = str(material_type or "").strip().lower(), str(workflow_run_id or "").strip(), max(1, int(limit))
     conn = _connect()
     try:
-        _ensure_schema(conn)
-        if run_id:
+        if not _schema_ready_for_reads(conn):
+            return []
+        if workflow_run_id_value:
             rows = conn.execute(
-                "SELECT source_name, chunk_index, title, content, tags_json, source_kind, workflow_run_id, run_id, session_id, round_index "
+                "SELECT source_name, chunk_index, title, content, tags_json, source_kind, workflow_run_id, session_id, round_index "
                 "FROM material_doc_knowledge WHERE material_type = ? AND (source_kind = 'bootstrap' OR (source_kind = 'iteration_feedback' AND workflow_run_id = ? AND round_index < ? AND source_name = ?)) "
                 "ORDER BY source_kind ASC, round_index DESC, id DESC LIMIT ?",
-                (mtype, run_id, int(before_round_index) if before_round_index is not None else 10**9, _THEORY_FILE.format(material_type=mtype), capped),
+                (mtype, workflow_run_id_value, int(before_round_index) if before_round_index is not None else 10**9, _THEORY_FILE.format(material_type=mtype), capped),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT source_name, chunk_index, title, content, tags_json, source_kind, workflow_run_id, run_id, session_id, round_index "
+                "SELECT source_name, chunk_index, title, content, tags_json, source_kind, workflow_run_id, session_id, round_index "
                 "FROM material_doc_knowledge WHERE material_type = ? AND (source_kind = 'bootstrap' OR (source_kind = 'iteration_feedback' AND source_name = ?)) "
                 "ORDER BY source_kind ASC, round_index DESC, id DESC LIMIT ?",
                 (mtype, _THEORY_FILE.format(material_type=mtype), capped),
@@ -812,6 +850,6 @@ def fetch_material_doc_context(material_type: str, limit: int = 8, *, workflow_r
     finally:
         conn.close()
     out: list[dict[str, Any]] = []
-    for source_name, chunk_index, title, content, tags_json, source_kind, row_workflow_run_id, row_run_id, session_id, round_index in rows:
-        out.append({"source_name": str(source_name or ""), "chunk_index": int(chunk_index or 0), "title": str(title or ""), "content": str(content or ""), "tags": _parse_tags_json(tags_json), "source_kind": str(source_kind or ""), "workflow_run_id": str(row_workflow_run_id or ""), "run_id": str(row_run_id or row_workflow_run_id or ""), "session_id": str(session_id or ""), "round_index": int(round_index or 0)})
+    for source_name, chunk_index, title, content, tags_json, source_kind, row_workflow_run_id, session_id, round_index in rows:
+        out.append({"source_name": str(source_name or ""), "chunk_index": int(chunk_index or 0), "title": str(title or ""), "content": str(content or ""), "tags": _parse_tags_json(tags_json), "source_kind": str(source_kind or ""), "workflow_run_id": str(row_workflow_run_id or ""), "session_id": str(session_id or ""), "round_index": int(round_index or 0)})
     return out

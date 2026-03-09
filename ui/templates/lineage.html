@@ -3,7 +3,7 @@
 <section class="page-head reveal"><h1>Lineage Explorer</h1><p>Trace workflow events, run audit and session context.</p></section>
 <article class="card reveal">
   <form class="inline-form" method="get" action="/lineage">
-    <input type="text" name="q" value="{{ query or '' }}" placeholder="session_id / trace_id / run_id" />
+  <input type="text" name="q" value="{{ query or '' }}" placeholder="session_id / trace_id / workflow_run_id" />
     <button type="submit">Search</button>
   </form>
 </article>

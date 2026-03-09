@@ -80,7 +80,7 @@ def _aggregate_doc_rows_for_full_view(rows: list[dict]) -> list[dict]:
 def _tool_trace_step_log_fallback_rows(
     *,
     session_id: str | None,
-    run_id: str | None,
+    workflow_run_id: str | None,
     step_name: str | None,
     success_value: int | None,
     sort_order: str,
@@ -91,8 +91,8 @@ def _tool_trace_step_log_fallback_rows(
     extra_filters = {"step_name": str(step_name or "").strip()}
     if session_id:
         extra_filters["session_id"] = str(session_id).strip()
-    if run_id:
-        extra_filters["run_id"] = str(run_id).strip()
+    if workflow_run_id:
+        extra_filters["workflow_run_id"] = str(workflow_run_id).strip()
     if success_value is not None:
         extra_filters["success"] = str(int(success_value))
     rows, _, _, _ = explorer_repo.list_rows(
@@ -113,7 +113,7 @@ def _tool_trace_step_log_fallback_rows(
                 "source_type": "step_log",
                 "created_at": row.get("created_at"),
                 "session_id": row.get("session_id"),
-                "run_id": row.get("run_id"),
+                "workflow_run_id": row.get("workflow_run_id"),
                 "step_name": row.get("step_name"),
                 "agent_name": row.get("step_name"),
                 "tool_name": "no-tool",
@@ -166,7 +166,7 @@ def explorer_page(
     workflow_run_id: str | None = None,
     trace_id: str | None = None,
     session_id: str | None = None,
-    run_id: str | None = None,
+    workflow_run_id_filter: str | None = None,
     step_name: str | None = None,
     agent_name: str | None = None,
     tool_name: str | None = None,
@@ -197,7 +197,7 @@ def explorer_page(
         "workflow_run_id",
         "trace_id",
         "session_id",
-        "run_id",
+        "workflow_run_id",
         "step_name",
         "agent_name",
         "tool_name",
@@ -214,7 +214,7 @@ def explorer_page(
         "workflow_run_id": str(workflow_run_id or "").strip(),
         "trace_id": str(trace_id or "").strip(),
         "session_id": str(session_id or "").strip(),
-        "run_id": str(run_id or "").strip(),
+        "workflow_run_id": str(workflow_run_id_filter or "").strip(),
         "step_name": str(step_name or "").strip(),
         "agent_name": str(agent_name or "").strip(),
         "tool_name": str(tool_name or "").strip(),
@@ -298,7 +298,7 @@ def viewer_page(
     code: str | None = None,
     trace_id: str | None = None,
     session_id: str | None = None,
-    run_id: str | None = None,
+    workflow_run_id: str | None = None,
     material_type: str | None = None,
     step_name: str | None = None,
     agent_name: str | None = None,
@@ -338,7 +338,7 @@ def viewer_page(
     extra_filters = viewer_extra_filters(
         trace_id=trace_id,
         session_id=session_id,
-        run_id=run_id,
+        workflow_run_id=workflow_run_id,
         material_type=effective_material_type,
         step_name=step_name,
         agent_name=agent_name,
@@ -377,7 +377,7 @@ def viewer_page(
         table=selected_table,
         trace_id=trace_id,
         session_id=session_id,
-        run_id=run_id,
+        workflow_run_id=workflow_run_id,
         step_name=step_name,
         agent_name=agent_name,
         event_type=event_type,
@@ -416,7 +416,7 @@ def viewer_page(
             "viewer_filters": viewer_filters,
             "show_trace_filter": "trace_id" in filterable_columns,
             "show_session_filter": "session_id" in filterable_columns,
-            "show_run_filter": "run_id" in filterable_columns,
+            "show_run_filter": "workflow_run_id" in filterable_columns,
             "show_step_filter": "step_name" in filterable_columns,
             "show_agent_filter": "agent_name" in filterable_columns,
             "show_tool_filter": "tool_name" in filterable_columns,
@@ -430,7 +430,7 @@ def viewer_page(
             "filter_query": {
                 "trace_id": trace_id or "",
                 "session_id": session_id or "",
-                "run_id": run_id or "",
+                "workflow_run_id": workflow_run_id or "",
                 "material_type": effective_material_type,
                 "step_name": step_name or "",
                 "agent_name": agent_name or "",
@@ -442,7 +442,7 @@ def viewer_page(
                 "success": success or "",
                 "doc_view": "full" if str(doc_view).strip().lower() == "full" else "chunk",
             },
-            "active_run_id": str(run_id or "").strip(),
+            "active_run_id": str(workflow_run_id or "").strip(),
         },
     )
 
@@ -502,7 +502,7 @@ def record_cleanup_page(
 def tool_trace_page(
     request: Request,
     session_id: str | None = None,
-    run_id: str | None = None,
+    workflow_run_id: str | None = None,
     step_name: str | None = None,
     tool_name: str | None = None,
     success: str | None = None,
@@ -512,13 +512,13 @@ def tool_trace_page(
     step_log_total = 0
     filters = tool_trace_repo.list_cascaded_filters(
         session_id=session_id,
-        run_id=run_id,
+        workflow_run_id=workflow_run_id,
         step_name=step_name,
         success=success_value,
     )
     rows = tool_trace_repo.list_tool_calls(
         session_id=session_id,
-        run_id=run_id,
+        workflow_run_id=workflow_run_id,
         step_name=step_name,
         tool_name=tool_name,
         success=success_value,
@@ -528,7 +528,7 @@ def tool_trace_page(
     if not rows and step_name and not tool_name:
         rows = _tool_trace_step_log_fallback_rows(
             session_id=session_id,
-            run_id=run_id,
+            workflow_run_id=workflow_run_id,
             step_name=step_name,
             success_value=success_value,
             sort_order=sort_order,
@@ -553,7 +553,7 @@ def tool_trace_page(
             "step_log_total": int(step_log_total or 0),
             "query": {
                 "session_id": session_id or "",
-                "run_id": run_id or "",
+                "workflow_run_id": workflow_run_id or "",
                 "step_name": step_name or "",
                 "tool_name": tool_name or "",
                 "success": "" if success_value is None else str(success_value),
@@ -567,7 +567,7 @@ def tool_trace_page(
 def tool_trace_list_partial(
     request: Request,
     session_id: str | None = None,
-    run_id: str | None = None,
+    workflow_run_id: str | None = None,
     step_name: str | None = None,
     tool_name: str | None = None,
     success: str | None = None,
@@ -577,7 +577,7 @@ def tool_trace_list_partial(
     step_log_total = 0
     rows = tool_trace_repo.list_tool_calls(
         session_id=session_id,
-        run_id=run_id,
+        workflow_run_id=workflow_run_id,
         step_name=step_name,
         tool_name=tool_name,
         success=success_value,
@@ -587,7 +587,7 @@ def tool_trace_list_partial(
     if not rows and step_name and not tool_name:
         rows = _tool_trace_step_log_fallback_rows(
             session_id=session_id,
-            run_id=run_id,
+            workflow_run_id=workflow_run_id,
             step_name=step_name,
             success_value=success_value,
             sort_order=sort_order,
@@ -613,6 +613,8 @@ def material_data_page(
     material_type: str | None = None,
     source: str | None = None,
     q: str | None = None,
+    workflow_run_id: str | None = None,
+    run_note: str | None = None,
     created_from: str | None = None,
     created_to: str | None = None,
     valid_only: bool = False,
@@ -620,6 +622,9 @@ def material_data_page(
     page_size: int = 50,
     sort_by: str = "id",
     sort_order: str = "desc",
+    trend_props: str = "",
+    pareto_x: str = "",
+    pareto_y: str = "",
 ):
     filters = material_data_repo.list_filter_options()
     target_columns = material_data_repo.list_target_columns(str(material_type or ""))
@@ -629,6 +634,8 @@ def material_data_page(
         material_type=str(material_type or ""),
         source=str(source or ""),
         q=str(q or ""),
+        workflow_run_id=str(workflow_run_id or ""),
+        run_note=str(run_note or ""),
         created_from=str(created_from or ""),
         created_to=str(created_to or ""),
         valid_only=bool(valid_only),
@@ -646,10 +653,15 @@ def material_data_page(
             "target_columns": target_columns,
             "material_types": filters["material_types"],
             "sources": filters["sources"],
+            "workflow_run_ids": filters["workflow_run_ids"],
+            "run_notes": filters["run_notes"],
+            "recent_runs": material_data_repo.list_recent_runs(limit=80),
             "query": {
                 "material_type": material_type or "",
                 "source": source or "",
                 "q": q or "",
+                "workflow_run_id": workflow_run_id or "",
+                "run_note": run_note or "",
                 "created_from": created_from or "",
                 "created_to": created_to or "",
                 "valid_only": bool(valid_only),
@@ -657,6 +669,9 @@ def material_data_page(
                 "page_size": min(max(page_size, 10), 200),
                 "sort_by": str(sort_by or "id"),
                 "sort_order": "asc" if str(sort_order).lower() == "asc" else "desc",
+                "trend_props": str(trend_props or ""),
+                "pareto_x": str(pareto_x or ""),
+                "pareto_y": str(pareto_y or ""),
             },
         },
     )
@@ -731,7 +746,7 @@ def tool_trace_step_log_detail_partial(request: Request, id: int):
             "source_type": "step_log",
             "created_at": item.get("created_at"),
             "session_id": item.get("session_id"),
-            "run_id": item.get("run_id"),
+            "workflow_run_id": item.get("workflow_run_id"),
             "step_name": item.get("step_name"),
             "agent_name": item.get("step_name"),
             "tool_name": "no-tool",
@@ -760,7 +775,7 @@ def viewer_results_partial(
     code: str | None = None,
     trace_id: str | None = None,
     session_id: str | None = None,
-    run_id: str | None = None,
+    workflow_run_id: str | None = None,
     material_type: str | None = None,
     step_name: str | None = None,
     agent_name: str | None = None,
@@ -783,7 +798,7 @@ def viewer_results_partial(
     extra_filters = viewer_extra_filters(
         trace_id=trace_id,
         session_id=session_id,
-        run_id=run_id,
+        workflow_run_id=workflow_run_id,
         material_type=effective_material_type,
         step_name=step_name,
         agent_name=agent_name,
@@ -825,7 +840,7 @@ def viewer_results_partial(
             "doc_view": "full" if str(doc_view).strip().lower() == "full" else "chunk",
             "selected": [],
             "sort_order": "asc" if str(sort_order).lower() == "asc" else "desc",
-            "active_run_id": str(run_id or "").strip(),
+            "active_run_id": str(workflow_run_id or "").strip(),
         },
     )
 
@@ -909,7 +924,7 @@ def explorer_table_partial(
     workflow_run_id: str | None = None,
     trace_id: str | None = None,
     session_id: str | None = None,
-    run_id: str | None = None,
+    workflow_run_id_filter: str | None = None,
     step_name: str | None = None,
     agent_name: str | None = None,
     tool_name: str | None = None,
@@ -936,7 +951,7 @@ def explorer_table_partial(
         "workflow_run_id": str(workflow_run_id or "").strip(),
         "trace_id": str(trace_id or "").strip(),
         "session_id": str(session_id or "").strip(),
-        "run_id": str(run_id or "").strip(),
+        "workflow_run_id": str(workflow_run_id_filter or "").strip(),
         "step_name": str(step_name or "").strip(),
         "agent_name": str(agent_name or "").strip(),
         "tool_name": str(tool_name or "").strip(),

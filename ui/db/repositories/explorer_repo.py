@@ -208,7 +208,7 @@ class ExplorerRepository:
         table: str,
         trace_id: str | None = None,
         session_id: str | None = None,
-        run_id: str | None = None,
+        workflow_run_id: str | None = None,
         step_name: str | None = None,
         agent_name: str | None = None,
         event_type: str | None = None,
@@ -234,7 +234,7 @@ class ExplorerRepository:
             "success_values": [],
             "trace_ids": [],
             "session_ids": [],
-            "run_ids": [],
+            "workflow_run_ids": [],
         }
         all_tables = self.list_tables(db_key)
         if table not in all_tables:
@@ -244,7 +244,7 @@ class ExplorerRepository:
             context_filters = {
                 "trace_id": trace_id or "",
                 "session_id": session_id or "",
-                "run_id": run_id or "",
+                "workflow_run_id": workflow_run_id or "",
             }
             chain_filters = {
                 **context_filters,
@@ -319,10 +319,10 @@ class ExplorerRepository:
                     column="session_id",
                     filters={},
                 ),
-                "run_ids": self._distinct_from_tables(
+                "workflow_run_ids": self._distinct_from_tables(
                     conn=conn,
                     tables=target_tables,
-                    column="run_id",
+                    column="workflow_run_id",
                     filters=context_filters,
                 ),
             }
@@ -515,14 +515,14 @@ class ExplorerRepository:
             key_values=key_values,
         )
 
-    def delete_by_run_id_across_workflow_dbs_to_recycle_bin(
+    def delete_by_workflow_run_id_across_workflow_dbs_to_recycle_bin(
         self,
         *,
-        run_id: str,
+        workflow_run_id: str,
     ) -> dict[str, Any]:
         return self.delete_by_column_value_across_databases_to_recycle_bin(
-            filter_col="run_id",
-            filter_value=run_id,
+            filter_col="workflow_run_id",
+            filter_value=workflow_run_id,
         )
 
     def preview_rows_by_column_value_across_databases(
@@ -807,14 +807,14 @@ class ExplorerRepository:
 
                 step_name = str(out.get("step_name") or "").strip()
                 session_id = str(out.get("session_id") or "").strip()
-                run_id = str(out.get("run_id") or "").strip()
+                workflow_run_id = str(out.get("workflow_run_id") or "").strip()
                 created_at = str(out.get("created_at") or "").strip()
 
                 where = ["step_name = ?"]
                 params: list[Any] = [step_name]
-                if run_id:
-                    where.append("run_id = ?")
-                    params.append(run_id)
+                if workflow_run_id:
+                    where.append("workflow_run_id = ?")
+                    params.append(workflow_run_id)
                 elif session_id:
                     where.append("session_id = ?")
                     params.append(session_id)

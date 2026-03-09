@@ -333,7 +333,7 @@ async function handleViewerCascade(source) {
     table: tableSel.value,
     trace_id: traceInput ? traceInput.value : '',
     session_id: sessionInput ? sessionInput.value : '',
-    run_id: runInput ? runInput.value : '',
+      workflow_run_id: runInput ? runInput.value : '',
     material_type: materialTypeSel ? materialTypeSel.value : '',
     step_name: stepSel ? stepSel.value : '',
     agent_name: agentSel ? agentSel.value : '',
@@ -374,7 +374,7 @@ async function handleViewerCascade(source) {
         table: tableSel.value,
         trace_id: traceInput ? traceInput.value : '',
         session_id: sessionInput ? sessionInput.value : '',
-        run_id: runInput ? runInput.value : '',
+      workflow_run_id: runInput ? runInput.value : '',
         material_type: materialTypeSel ? materialTypeSel.value : '',
         step_name: stepSel ? stepSel.value : '',
         agent_name: agentSel.value,
@@ -448,7 +448,7 @@ async function handleToolTraceCascade(source) {
   if (!form) return;
 
   const sessionInput = form.querySelector('input[name="session_id"]');
-  const runInput = form.querySelector('input[name="run_id"]');
+  const runInput = form.querySelector('input[name="workflow_run_id"]');
   const stepSel = document.getElementById('trace-step');
   const toolSel = document.getElementById('trace-tool');
   const successSel = form.querySelector('select[name="success"]');
@@ -458,7 +458,7 @@ async function handleToolTraceCascade(source) {
 
   const params = new URLSearchParams({
     session_id: sessionInput ? sessionInput.value : '',
-    run_id: runInput ? runInput.value : '',
+      workflow_run_id: runInput ? runInput.value : '',
     step_name: stepSel ? stepSel.value : '',
     success: successSel ? successSel.value : '',
   });

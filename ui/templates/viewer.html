@@ -56,8 +56,8 @@
       {% endif %}
       {% if show_run_filter %}
       <label>
-        <span>Run ID</span>
-        <input name="run_id" id="viewer-run-id" value="{{ filter_query.run_id }}" placeholder="run id" onchange="handleViewerCascade('run')" />
+        <span>Workflow Run ID</span>
+        <input name="workflow_run_id" id="viewer-run-id" value="{{ filter_query.workflow_run_id }}" placeholder="workflow_run_id" onchange="handleViewerCascade('run')" />
       </label>
       {% endif %}
       {% if show_step_filter %}
@@ -149,7 +149,7 @@
       {% endif %}
       <label>
         <span>Code Filter</span>
-        <input name="code" value="{{ code }}" placeholder="id / trace_id / session_id / run_id / barcode" />
+        <input name="code" value="{{ code }}" placeholder="id / trace_id / session_id / workflow_run_id / barcode" />
       </label>
       {% if selected_table == 'material_doc_knowledge' %}
       <label>

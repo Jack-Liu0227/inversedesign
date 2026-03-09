@@ -10,7 +10,7 @@
   <span><strong>Agent:</strong> {{ selected.agent_name or 'None' }}</span>
   <span><strong>Tool:</strong> {{ selected.tool_name or 'None' }}{% if selected.source_type == 'step_log' %} (from workflow_step_logs){% endif %}</span>
   <span><strong>Session:</strong> {{ selected.session_id or 'None' }}</span>
-  <span><strong>Run:</strong> {{ selected.run_id or 'None' }}</span>
+  <span><strong>Workflow Run:</strong> {{ selected.workflow_run_id or 'None' }}</span>
   <span><strong>Success:</strong> {{ selected.success }}</span>
 </div>
 <div class="trace-io-grid">

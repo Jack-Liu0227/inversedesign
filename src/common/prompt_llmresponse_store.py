@@ -31,7 +31,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             workflow_name TEXT NOT NULL,
             trace_id TEXT,
             session_id TEXT,
-            run_id TEXT,
+            workflow_run_id TEXT,
             step_name TEXT,
             agent_name TEXT,
             model_id TEXT,
@@ -51,7 +51,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_prompt_llm_session_created ON prompt_llmresponse_logs(session_id, created_at DESC)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_prompt_llm_run_created ON prompt_llmresponse_logs(run_id, created_at DESC)"
+        "CREATE INDEX IF NOT EXISTS idx_prompt_llm_workflow_run_created ON prompt_llmresponse_logs(workflow_run_id, created_at DESC)"
     )
     conn.commit()
 
@@ -73,7 +73,7 @@ def log_prompt_llm_response(
     workflow_name: str,
     trace_id: str | None,
     session_id: str | None,
-    run_id: str | None,
+    workflow_run_id: str | None,
     step_name: str | None,
     agent_name: str | None,
     model_id: str | None,
@@ -86,8 +86,8 @@ def log_prompt_llm_response(
 ) -> Optional[int]:
     if not _enabled():
         return None
-    normalized_run_id = str(run_id or "").strip() or str(session_id or "").strip() or str(trace_id or "").strip()
-    if not normalized_run_id:
+    normalized_workflow_run_id = str(workflow_run_id or "").strip() or str(session_id or "").strip() or str(trace_id or "").strip()
+    if not normalized_workflow_run_id:
         return None
 
     conn = _connect()
@@ -99,7 +99,7 @@ def log_prompt_llm_response(
                 workflow_name,
                 trace_id,
                 session_id,
-                run_id,
+                workflow_run_id,
                 step_name,
                 agent_name,
                 model_id,
@@ -117,7 +117,7 @@ def log_prompt_llm_response(
                 str(workflow_name or "").strip(),
                 trace_id,
                 session_id,
-                normalized_run_id,
+                normalized_workflow_run_id,
                 step_name,
                 agent_name,
                 model_id,

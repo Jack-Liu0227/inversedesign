@@ -203,15 +203,15 @@ class DocEvolutionRepository:
         by_run: dict[str, dict[str, Any]] = {}
         round_indices: set[int] = set()
         for row in parsed_feedback:
-            run_id = str(row.get("workflow_run_id") or "").strip()
+            workflow_run_id_value = str(row.get("workflow_run_id") or "").strip()
             mtype = str(row.get("material_type") or "").strip().lower()
             source_kind = str(row.get("source_kind") or "").strip().lower()
             source_name = str(row.get("source_name") or "").strip()
-            if source_kind != "iteration_feedback" or not run_id:
+            if source_kind != "iteration_feedback" or not workflow_run_id_value:
                 continue
-            if run_id not in by_run:
-                by_run[run_id] = {
-                    "run_id": run_id,
+            if workflow_run_id_value not in by_run:
+                by_run[workflow_run_id_value] = {
+                    "workflow_run_id": workflow_run_id_value,
                     "material_type": mtype,
                     "session_id": str(row.get("session_id") or ""),
                     "round_rows": defaultdict(list),
@@ -223,9 +223,9 @@ class DocEvolutionRepository:
                     or source_name.endswith(".summary.md")
                 ):
                     round_indices.add(rdx)
-                    by_run[run_id]["round_rows"][rdx].append(row)
+                    by_run[workflow_run_id_value]["round_rows"][rdx].append(row)
 
-        sorted_runs = sorted(by_run.values(), key=lambda x: x["run_id"], reverse=True)[: max(1, int(limit_runs))]
+        sorted_runs = sorted(by_run.values(), key=lambda x: x["workflow_run_id"], reverse=True)[: max(1, int(limit_runs))]
         selected_material_types = sorted({str(r.get("material_type") or "").strip().lower() for r in sorted_runs if r.get("material_type")})
         bootstrap_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
         bootstrap_material_types: list[str] = []
@@ -279,7 +279,7 @@ class DocEvolutionRepository:
             round_count = len([x for x in rounds_payload if x.get("chunk_count", 0) > 0])
             output_rows.append(
                 {
-                    "run_id": row["run_id"],
+                    "workflow_run_id": row["workflow_run_id"],
                     "material_type": mtype,
                     "session_id": row.get("session_id", ""),
                     "round_count": round_count,
@@ -300,7 +300,7 @@ class DocEvolutionRepository:
                 rounds_payload = [{"round_index": rdx, **self._aggregate_cells([])} for rdx in sorted_rounds]
                 output_rows.append(
                     {
-                        "run_id": f"bootstrap-only:{mtype}",
+                        "workflow_run_id": f"bootstrap-only:{mtype}",
                         "material_type": mtype,
                         "session_id": "",
                         "round_count": 0,

@@ -64,7 +64,7 @@ class WorkflowRepository:
                 offset = (page - 1) * page_size
                 rows = conn.execute(
                     f"""
-                    SELECT id, created_at, trace_id, workflow_name, session_id, run_id,
+                    SELECT id, created_at, trace_id, workflow_name, session_id, workflow_run_id,
                            step_name, event_type, payload_json, latency_ms, success, error_text
                     FROM workflow_io_logs
                     {where_sql}
@@ -88,10 +88,10 @@ class WorkflowRepository:
             with db_manager.connect(self.DB_KEY, readonly=True) as conn:
                 rows = conn.execute(
                     """
-                    SELECT id, created_at, trace_id, workflow_name, session_id, run_id,
-                           step_name, event_type, payload_json, latency_ms, success, error_text
+                    SELECT id, created_at, trace_id, workflow_name, session_id, workflow_run_id,
+                    step_name, event_type, payload_json, latency_ms, success, error_text
                     FROM workflow_io_logs
-                    WHERE trace_id = ? OR session_id = ? OR run_id = ?
+                    WHERE trace_id = ? OR session_id = ? OR workflow_run_id = ?
                     ORDER BY created_at ASC, id ASC
                     """,
                     [trace_or_session_id, trace_or_session_id, trace_or_session_id],
@@ -111,11 +111,11 @@ class WorkflowRepository:
             with db_manager.connect(self.DB_KEY, readonly=True) as conn:
                 rows = conn.execute(
                     """
-                    SELECT id, created_at, workflow_name, session_id, run_id,
+                    SELECT id, created_at, workflow_name, session_id, workflow_run_id,
                            decision, should_stop, summary_json, final_result_json,
                            step_outputs_json, input_json, error_text
                     FROM workflow_run_audit
-                    WHERE session_id = ? OR run_id = ?
+                    WHERE session_id = ? OR workflow_run_id = ?
                     ORDER BY created_at ASC, id ASC
                     """,
                     [trace_or_session_id, trace_or_session_id],

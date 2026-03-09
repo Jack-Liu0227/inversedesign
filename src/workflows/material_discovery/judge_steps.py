@@ -166,7 +166,6 @@ def persist_candidates(step_input: StepInput) -> StepOutput:
         rows.append(
             MaterialSampleRow(
                 workflow_run_id=str(workflow_run_id),
-                run_id=str(workflow_run_id),
                 session_id=str(session_id),
                 material_type=material_type,
                 goal=request.goal,
@@ -202,8 +201,8 @@ def persist_candidates(step_input: StepInput) -> StepOutput:
                 risk_tags=[str(x) for x in list_or_empty(judge_item.get("risk_tags", [])) if str(x).strip()],
                 iteration=int(round_index),
                 workflow_run_id=str(workflow_run_id),
-                run_id=str(workflow_run_id),
                 session_id=str(session_id),
+                run_note=str(request.run_note or ""),
             )
         )
 

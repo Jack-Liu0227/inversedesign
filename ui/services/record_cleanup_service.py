@@ -15,7 +15,7 @@ CLEANUP_FILTER_OPTIONS = [
 
 class RecordCleanupService:
     _LOGICAL_COLUMNS = {
-        "workflow_id": ("workflow_run_id", "run_id"),
+        "workflow_id": ("workflow_run_id",),
     }
 
     def normalize_filter_col(self, filter_col: str | None) -> str:

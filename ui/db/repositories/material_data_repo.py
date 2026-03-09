@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Callable
 
 from src.fewshot.dataset_registry import get_dataset_registry
@@ -26,9 +27,19 @@ class MaterialDataRepository:
             ).fetchone()
         return bool(row)
 
+    def table_columns(self) -> set[str]:
+        if not self.table_exists():
+            return set()
+        with db_manager.connect(self.DB_KEY, readonly=True) as conn:
+            return {
+                str(row["name"]).strip().lower()
+                for row in conn.execute(f'PRAGMA table_info("{self.TABLE}")').fetchall()
+            }
+
     def list_filter_options(self) -> dict[str, list[str]]:
         if not self.table_exists():
-            return {"material_types": [], "sources": []}
+            return {"material_types": [], "sources": [], "workflow_run_ids": [], "run_notes": []}
+        columns = self.table_columns()
         with db_manager.connect(self.DB_KEY, readonly=True) as conn:
             mt_rows = conn.execute(
                 f'SELECT DISTINCT material_type FROM "{self.TABLE}" WHERE material_type <> \'\' ORDER BY material_type'
@@ -36,9 +47,25 @@ class MaterialDataRepository:
             src_rows = conn.execute(
                 f'SELECT DISTINCT source FROM "{self.TABLE}" WHERE source <> \'\' ORDER BY source'
             ).fetchall()
+            run_rows = (
+                conn.execute(
+                    f'SELECT DISTINCT workflow_run_id FROM "{self.TABLE}" WHERE workflow_run_id <> \'\' ORDER BY workflow_run_id DESC'
+                ).fetchall()
+                if "workflow_run_id" in columns
+                else []
+            )
+            note_rows = (
+                conn.execute(
+                    f'SELECT DISTINCT run_note FROM "{self.TABLE}" WHERE run_note <> \'\' ORDER BY run_note'
+                ).fetchall()
+                if "run_note" in columns
+                else []
+            )
         return {
             "material_types": [str(r["material_type"]) for r in mt_rows],
             "sources": [str(r["source"]) for r in src_rows],
+            "workflow_run_ids": [str(r["workflow_run_id"]) for r in run_rows],
+            "run_notes": [str(r["run_note"]) for r in note_rows],
         }
 
     def list_rows(
@@ -49,6 +76,8 @@ class MaterialDataRepository:
         material_type: str = "",
         source: str = "",
         q: str = "",
+        workflow_run_id: str = "",
+        run_note: str = "",
         created_from: str = "",
         created_to: str = "",
         valid_only: bool = False,
@@ -57,73 +86,37 @@ class MaterialDataRepository:
     ) -> tuple[list[dict[str, Any]], int]:
         if not self.table_exists():
             return [], 0
-        where = []
-        params: list[Any] = []
-        if material_type.strip():
-            where.append("material_type = ?")
-            params.append(material_type.strip())
-        if source.strip():
-            where.append("source = ?")
-            params.append(source.strip())
-        if valid_only:
-            where.append("is_valid = 1")
-        if q.strip():
-            like = f"%{q.strip()}%"
-            where.append(
-                "("
-                "material_type LIKE ? OR source LIKE ? OR source_name LIKE ? OR "
-                "composition_json LIKE ? OR processing_json LIKE ? OR features_json LIKE ? OR target_values_json LIKE ? OR "
-                "predicted_values_json LIKE ? OR judge_reasons_json LIKE ? OR risk_tags_json LIKE ?"
-                ")"
-            )
-            params.extend([like] * 10)
-        utc_from, utc_to_exclusive = beijing_range_to_utc_sql(
-            created_from=str(created_from or ""),
-            created_to=str(created_to or ""),
+        parsed_rows = self._load_filtered_rows(
+            material_type=material_type,
+            source=source,
+            q=q,
+            workflow_run_id=workflow_run_id,
+            run_note=run_note,
+            created_from=created_from,
+            created_to=created_to,
+            valid_only=valid_only,
         )
-        if utc_from:
-            where.append("created_at >= ?")
-            params.append(utc_from)
-        if utc_to_exclusive:
-            where.append("created_at < ?")
-            params.append(utc_to_exclusive)
-        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
         current_page = max(1, int(page))
         current_size = max(10, min(int(page_size), 200))
         offset = (current_page - 1) * current_size
         normalized_order = normalize_sort_order(sort_order, default="desc")
         target_sort_key = self._extract_target_sort_key(sort_by)
-        with db_manager.connect(self.DB_KEY, readonly=True) as conn:
-            total = int(
-                conn.execute(
-                    f'SELECT COUNT(*) AS c FROM "{self.TABLE}" {where_sql}',
-                    params,
-                ).fetchone()["c"]
+        total = len(parsed_rows)
+        if target_sort_key:
+            parsed_rows = self._sort_rows_with_nulls_last(
+                parsed_rows,
+                value_getter=lambda row: row.get("display_target_values_map", {}).get(target_sort_key),
+                descending=(normalized_order == "desc"),
             )
-            base_sql = f"""
-                SELECT id, material_type, source, source_name, source_row_key,
-                       composition_json, processing_json, features_json, target_values_json, predicted_values_json,
-                       iteration, is_valid, judge_score, judge_reasons_json, risk_tags_json, workflow_run_id, session_id, created_at
-                FROM "{self.TABLE}"
-                {where_sql}
-            """
-            rows = conn.execute(base_sql, params).fetchall()
-            parsed_rows = [self._format_row(dict(r)) for r in rows]
-            if target_sort_key:
-                parsed_rows = self._sort_rows_with_nulls_last(
-                    parsed_rows,
-                    value_getter=lambda row: row.get("display_target_values_map", {}).get(target_sort_key),
-                    descending=(normalized_order == "desc"),
-                )
-            else:
-                order_col = self._normalize_sort_column(sort_by)
-                parsed_rows = self._sort_rows_with_nulls_last(
-                    parsed_rows,
-                    value_getter=lambda row: row.get(order_col),
-                    descending=(normalized_order == "desc"),
-                )
-            page_rows = parsed_rows[offset : offset + current_size]
-            return page_rows, total
+        else:
+            order_col = self._normalize_sort_column(sort_by)
+            parsed_rows = self._sort_rows_with_nulls_last(
+                parsed_rows,
+                value_getter=lambda row: row.get(order_col),
+                descending=(normalized_order == "desc"),
+            )
+        page_rows = parsed_rows[offset : offset + current_size]
+        return page_rows, total
 
     def delete_rows(self, ids: list[int]) -> int:
         if not self.table_exists():
@@ -177,6 +170,56 @@ class MaterialDataRepository:
 
         return sorted([c for c in columns if c.strip()])
 
+    def build_analytics(
+        self,
+        *,
+        material_type: str = "",
+        source: str = "",
+        q: str = "",
+        workflow_run_id: str = "",
+        run_note: str = "",
+        created_from: str = "",
+        created_to: str = "",
+        valid_only: bool = False,
+        properties: list[str] | None = None,
+        pareto_x: str = "",
+        pareto_y: str = "",
+    ) -> dict[str, Any]:
+        rows = self._load_filtered_rows(
+            material_type=material_type,
+            source=source,
+            q=q,
+            workflow_run_id=workflow_run_id,
+            run_note=run_note,
+            created_from=created_from,
+            created_to=created_to,
+            valid_only=valid_only,
+        )
+        available_properties = self._collect_available_properties(rows, material_type=material_type)
+        selected_properties = self._resolve_selected_properties(
+            available_properties,
+            requested=properties or [],
+        )
+        objective_map = {prop: self._objective_direction(prop) for prop in available_properties}
+        return {
+            "available_properties": available_properties,
+            "selected_properties": selected_properties,
+            "objective_map": objective_map,
+            "row_count": len(rows),
+            "trend": self._build_trend_series(
+                rows,
+                properties=selected_properties,
+                objective_map=objective_map,
+            ),
+            "pareto": self._build_pareto_series(
+                rows,
+                available_properties=available_properties,
+                objective_map=objective_map,
+                pareto_x=pareto_x,
+                pareto_y=pareto_y,
+            ),
+        }
+
     @staticmethod
     def _format_json_compact(raw: Any) -> str:
         text = str(raw or "")
@@ -203,10 +246,12 @@ class MaterialDataRepository:
         row["target_values_text"] = self._format_json_compact(row.get("target_values_json"))
         row["target_values_map"] = target_map
         row["display_target_values_map"] = display_target_map
+        row["predicted_values_map"] = predicted_map
         row["predicted_values_text"] = self._format_json_compact(row.get("predicted_values_json"))
         row["judge_reasons_text"] = self._format_json_compact(row.get("judge_reasons_json"))
         row["risk_tags_text"] = self._format_json_compact(row.get("risk_tags_json"))
         row["is_valid"] = int(row.get("is_valid") or 0)
+        row["run_note"] = str(row.get("run_note") or "").strip()
         return row
 
     @staticmethod
@@ -273,6 +318,414 @@ class MaterialDataRepository:
             conn.commit()
             return len(updates)
 
+    def _load_filtered_rows(
+        self,
+        *,
+        material_type: str = "",
+        source: str = "",
+        q: str = "",
+        workflow_run_id: str = "",
+        run_note: str = "",
+        created_from: str = "",
+        created_to: str = "",
+        valid_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        columns = self.table_columns()
+        where = []
+        params: list[Any] = []
+        if material_type.strip():
+            where.append("material_type = ?")
+            params.append(material_type.strip())
+        if source.strip():
+            where.append("source = ?")
+            params.append(source.strip())
+        if workflow_run_id.strip() and "workflow_run_id" in columns:
+            where.append("workflow_run_id = ?")
+            params.append(workflow_run_id.strip())
+        if run_note.strip() and "run_note" in columns:
+            where.append("run_note = ?")
+            params.append(run_note.strip())
+        if valid_only:
+            where.append("is_valid = 1")
+        if q.strip():
+            like = f"%{q.strip()}%"
+            q_clauses = [
+                "material_type LIKE ?",
+                "source LIKE ?",
+                "source_name LIKE ?",
+            ]
+            q_params: list[Any] = [like, like, like]
+            if "workflow_run_id" in columns:
+                q_clauses.append("workflow_run_id LIKE ?")
+                q_params.append(like)
+            if "run_note" in columns:
+                q_clauses.append("run_note LIKE ?")
+                q_params.append(like)
+            q_clauses.extend(
+                [
+                    "composition_json LIKE ?",
+                    "processing_json LIKE ?",
+                    "features_json LIKE ?",
+                    "target_values_json LIKE ?",
+                    "predicted_values_json LIKE ?",
+                    "judge_reasons_json LIKE ?",
+                    "risk_tags_json LIKE ?",
+                ]
+            )
+            q_params.extend([like] * 7)
+            where.append(
+                "(" + " OR ".join(q_clauses) + ")"
+            )
+            params.extend(q_params)
+        utc_from, utc_to_exclusive = beijing_range_to_utc_sql(
+            created_from=str(created_from or ""),
+            created_to=str(created_to or ""),
+        )
+        if utc_from:
+            where.append("created_at >= ?")
+            params.append(utc_from)
+        if utc_to_exclusive:
+            where.append("created_at < ?")
+            params.append(utc_to_exclusive)
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        run_note_select = "run_note" if "run_note" in columns else "'' AS run_note"
+        workflow_run_id_select = "workflow_run_id" if "workflow_run_id" in columns else "'' AS workflow_run_id"
+        with db_manager.connect(self.DB_KEY, readonly=True) as conn:
+            base_sql = f"""
+                SELECT id, material_type, source, source_name, source_row_key,
+                       composition_json, processing_json, features_json, target_values_json, predicted_values_json,
+                       iteration, is_valid, judge_score, judge_reasons_json, risk_tags_json, {workflow_run_id_select}, session_id, {run_note_select}, created_at
+                FROM "{self.TABLE}"
+                {where_sql}
+            """
+            rows = conn.execute(base_sql, params).fetchall()
+        return [self._format_row(dict(r)) for r in rows]
+
+    def list_recent_runs(self, limit: int = 100) -> list[dict[str, Any]]:
+        with db_manager.connect(self.DB_KEY, readonly=True) as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='workflow_run_meta' LIMIT 1"
+            ).fetchone()
+            if not exists:
+                return []
+            rows = conn.execute(
+                """
+                SELECT workflow_run_id, session_id, material_type, run_note, mounted_run_ids_json, created_at
+                FROM workflow_run_meta
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (max(1, int(limit)),),
+            ).fetchall()
+        output: list[dict[str, Any]] = []
+        for row in rows:
+            payload = normalize_row_datetimes(dict(row))
+            try:
+                mounted_ids = json.loads(str(payload.get("mounted_run_ids_json") or "[]"))
+            except Exception:
+                mounted_ids = []
+            payload["mounted_workflow_run_ids"] = mounted_ids if isinstance(mounted_ids, list) else []
+            output.append(payload)
+        return output
+
+    def _collect_available_properties(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        material_type: str = "",
+    ) -> list[str]:
+        columns: set[str] = set(self.list_target_columns(material_type))
+        for row in rows:
+            predicted = row.get("predicted_values_map", {})
+            if not isinstance(predicted, dict):
+                continue
+            columns.update(str(k) for k in predicted.keys() if str(k).strip())
+        return sorted(columns)
+
+    @staticmethod
+    def _resolve_selected_properties(available_properties: list[str], requested: list[str]) -> list[str]:
+        available_set = {str(item) for item in available_properties}
+        selected: list[str] = []
+        for prop in requested:
+            key = str(prop or "").strip()
+            if key and key in available_set and key not in selected:
+                selected.append(key)
+        if selected:
+            return selected
+        return available_properties[: min(4, len(available_properties))]
+
+    def _build_trend_series(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        properties: list[str],
+        objective_map: dict[str, str],
+    ) -> dict[str, Any]:
+        iteration_values: dict[int, dict[str, list[dict[str, Any]]]] = {}
+        for row in rows:
+            iteration = self._coerce_iteration(row.get("iteration"))
+            if iteration is None:
+                continue
+            predicted_map = row.get("predicted_values_map", {})
+            if not isinstance(predicted_map, dict):
+                continue
+            sample_key = self._build_sample_key(row)
+            sample_label = str(row.get("source_name") or row.get("source_row_key") or row.get("id") or "").strip()
+            bucket = iteration_values.setdefault(iteration, {})
+            for prop in properties:
+                value = self._coerce_float(predicted_map.get(prop))
+                if value is None:
+                    continue
+                bucket.setdefault(prop, []).append(
+                    {
+                        "value": value,
+                        "sample_key": sample_key,
+                        "sample_label": sample_label,
+                        "row_id": int(row.get("id") or 0),
+                    }
+                )
+
+        iterations = sorted(iteration_values.keys())
+        series: list[dict[str, Any]] = []
+        for prop in properties:
+            direction = objective_map.get(prop, "max")
+            points: list[dict[str, Any]] = []
+            all_points: list[dict[str, Any]] = []
+            raw_values: list[float] = []
+            for iteration in iterations:
+                entries = iteration_values.get(iteration, {}).get(prop, [])
+                if not entries:
+                    continue
+                values = [float(item["value"]) for item in entries]
+                best_value = max(values) if direction == "max" else min(values)
+                avg_value = sum(values) / len(values)
+                raw_values.append(best_value)
+                sorted_entries = sorted(
+                    entries,
+                    key=lambda item: float(item["value"]),
+                    reverse=(direction == "max"),
+                )
+                best_entry = sorted_entries[0]
+                for rank, entry in enumerate(sorted_entries, start=1):
+                    all_points.append(
+                        {
+                            "iteration": iteration,
+                            "value": round(float(entry["value"]), 6),
+                            "rank": rank,
+                            "count": len(sorted_entries),
+                            "sample_key": str(entry["sample_key"]),
+                            "sample_label": str(entry["sample_label"]),
+                            "row_id": int(entry["row_id"]),
+                        }
+                    )
+                points.append(
+                    {
+                        "iteration": iteration,
+                        "best": round(best_value, 6),
+                        "avg": round(avg_value, 6),
+                        "count": len(values),
+                        "sample_key": str(best_entry["sample_key"]),
+                        "sample_label": str(best_entry["sample_label"]),
+                        "row_id": int(best_entry["row_id"]),
+                    }
+                )
+            if not points:
+                continue
+            series.append(
+                {
+                    "property": prop,
+                    "direction": direction,
+                    "points": points,
+                    "all_points": all_points,
+                    "raw_min": round(min(raw_values), 6),
+                    "raw_max": round(max(raw_values), 6),
+                }
+            )
+        return {"iterations": iterations, "series": series}
+
+    @staticmethod
+    def _build_sample_key(row: dict[str, Any]) -> str:
+        row_id = int(row.get("id") or 0)
+        source = str(row.get("source") or "").strip()
+        source_name = str(row.get("source_name") or "").strip()
+        source_row_key = str(row.get("source_row_key") or "").strip()
+        if source and source_name and source_row_key:
+            return f"{source}:{source_name}:{source_row_key}"
+        if source_name and source_row_key:
+            return f"{source_name}:{source_row_key}"
+        if source_name:
+            return source_name
+        if row_id > 0:
+            return f"row:{row_id}"
+        return "unknown-sample"
+
+    def _build_pareto_series(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        available_properties: list[str],
+        objective_map: dict[str, str],
+        pareto_x: str = "",
+        pareto_y: str = "",
+    ) -> dict[str, Any]:
+        x_prop, y_prop = self._resolve_pareto_axes(
+            available_properties,
+            pareto_x=pareto_x,
+            pareto_y=pareto_y,
+        )
+        if not x_prop or not y_prop or x_prop == y_prop:
+            return {
+                "x_property": x_prop,
+                "y_property": y_prop,
+                "x_direction": objective_map.get(x_prop or "", "max"),
+                "y_direction": objective_map.get(y_prop or "", "max"),
+                "iterations": [],
+                "points": [],
+                "frontier_by_iteration": [],
+            }
+
+        points: list[dict[str, Any]] = []
+        iterations_set: set[int] = set()
+        for row in rows:
+            predicted_map = row.get("predicted_values_map", {})
+            if not isinstance(predicted_map, dict):
+                continue
+            x_value = self._coerce_float(predicted_map.get(x_prop))
+            y_value = self._coerce_float(predicted_map.get(y_prop))
+            iteration = self._coerce_iteration(row.get("iteration"))
+            if x_value is None or y_value is None or iteration is None:
+                continue
+            iterations_set.add(iteration)
+            points.append(
+                {
+                    "id": int(row.get("id") or 0),
+                    "iteration": iteration,
+                    "x": round(x_value, 6),
+                    "y": round(y_value, 6),
+                    "source_name": str(row.get("source_name") or ""),
+                    "material_type": str(row.get("material_type") or ""),
+                }
+            )
+        iterations = sorted(iterations_set)
+        sorted_points = sorted(points, key=lambda item: (int(item["iteration"]), int(item["id"])))
+        frontier_by_iteration: list[dict[str, Any]] = []
+        x_direction = objective_map.get(x_prop, "max")
+        y_direction = objective_map.get(y_prop, "max")
+        for iteration in iterations:
+            visible_points = [item for item in sorted_points if int(item["iteration"]) <= iteration]
+            frontier_by_iteration.append(
+                {
+                    "iteration": iteration,
+                    "visible_ids": [int(item["id"]) for item in visible_points],
+                    "frontier_ids": self._pareto_frontier_ids(
+                        visible_points,
+                        x_direction=x_direction,
+                        y_direction=y_direction,
+                    ),
+                }
+            )
+        return {
+            "x_property": x_prop,
+            "y_property": y_prop,
+            "x_direction": x_direction,
+            "y_direction": y_direction,
+            "iterations": iterations,
+            "points": sorted_points,
+            "frontier_by_iteration": frontier_by_iteration,
+        }
+
+    @staticmethod
+    def _resolve_pareto_axes(
+        available_properties: list[str],
+        *,
+        pareto_x: str,
+        pareto_y: str,
+    ) -> tuple[str, str]:
+        if not available_properties:
+            return "", ""
+        normalized = [str(item) for item in available_properties if str(item).strip()]
+        x = pareto_x if pareto_x in normalized else (normalized[0] if normalized else "")
+        y_candidates = [item for item in normalized if item != x]
+        y = pareto_y if pareto_y in y_candidates else (y_candidates[0] if y_candidates else "")
+        return x, y
+
+    @staticmethod
+    def _pareto_frontier_ids(
+        points: list[dict[str, Any]],
+        *,
+        x_direction: str,
+        y_direction: str,
+    ) -> list[int]:
+        frontier: list[int] = []
+        for index, point in enumerate(points):
+            dominated = False
+            for other_index, other in enumerate(points):
+                if index == other_index:
+                    continue
+                if MaterialDataRepository._dominates(
+                    other,
+                    point,
+                    x_direction=x_direction,
+                    y_direction=y_direction,
+                ):
+                    dominated = True
+                    break
+            if not dominated:
+                frontier.append(int(point["id"]))
+        return frontier
+
+    @staticmethod
+    def _dominates(
+        left: dict[str, Any],
+        right: dict[str, Any],
+        *,
+        x_direction: str,
+        y_direction: str,
+    ) -> bool:
+        left_x = float(left["x"])
+        left_y = float(left["y"])
+        right_x = float(right["x"])
+        right_y = float(right["y"])
+        better_x = left_x >= right_x if x_direction == "max" else left_x <= right_x
+        better_y = left_y >= right_y if y_direction == "max" else left_y <= right_y
+        strict_x = left_x > right_x if x_direction == "max" else left_x < right_x
+        strict_y = left_y > right_y if y_direction == "max" else left_y < right_y
+        return better_x and better_y and (strict_x or strict_y)
+
+    @staticmethod
+    def _objective_direction(property_name: str) -> str:
+        key = str(property_name or "").strip().lower()
+        minimize_tokens = (
+            "cost",
+            "density",
+            "wear",
+            "loss",
+            "error",
+            "uncertainty",
+            "roughness",
+            "resistivity",
+            "corrosion rate",
+            "degradation",
+        )
+        return "min" if any(token in key for token in minimize_tokens) else "max"
+
+    @staticmethod
+    def _coerce_iteration(value: Any) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coerce_float(value: Any) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if math.isnan(number) or math.isinf(number):
+            return None
+        return number
+
     @staticmethod
     def _normalize_sort_column(sort_by: str) -> str:
         aliases = {
@@ -292,6 +745,7 @@ class MaterialDataRepository:
             "judge_reasons": "judge_reasons_json",
             "risk_tags": "risk_tags_json",
             "workflow_run_id": "workflow_run_id",
+            "run_note": "run_note",
             "session_id": "session_id",
             "created_at": "created_at",
         }

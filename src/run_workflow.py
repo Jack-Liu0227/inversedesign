@@ -67,6 +67,9 @@ def main() -> None:
         "max_iterations": 3,
         # Set this to continue a previous run's round index, e.g. "a5a5a84c-...".
         "resume_run_id": None,
+        # Optionally mount workflow-generated samples from prior runs, e.g. ["run-a", "run-b"].
+        "mounted_workflow_run_ids": [],
+        "run_note": "",
         "include_debug": True,
     }
 

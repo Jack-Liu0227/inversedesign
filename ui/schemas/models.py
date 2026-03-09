@@ -27,7 +27,7 @@ class WorkflowEventItem(BaseModel):
     trace_id: str | None = None
     workflow_name: str | None = None
     session_id: str | None = None
-    run_id: str | None = None
+    workflow_run_id: str | None = None
     step_name: str | None = None
     event_type: str | None = None
     latency_ms: int | None = None

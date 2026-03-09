@@ -24,6 +24,8 @@ class WorkflowInput(BaseModel):
     include_debug: bool | str = Field(default=False)
     log_trace_id: Optional[str] = Field(default=None)
     resume_run_id: Optional[str] = Field(default=None)
+    mounted_workflow_run_ids: Optional[list[str] | str] = Field(default=None)
+    run_note: Optional[str] = Field(default=None)
 
     @staticmethod
     def _coerce_min_int(value: Any, *, field_name: str, minimum: int, default: Optional[int]) -> Optional[int]:
@@ -76,6 +78,7 @@ class WorkflowInput(BaseModel):
         "user_id",
         "log_trace_id",
         "resume_run_id",
+        "run_note",
         "recommend_count_policy",
         mode="before",
     )
@@ -106,3 +109,26 @@ class WorkflowInput(BaseModel):
     def _coerce_debug_level(cls, value: Any) -> int:
         parsed = cls._coerce_min_int(value, field_name="debug_level", minimum=1, default=1)
         return 1 if parsed is None else parsed
+
+    @field_validator("mounted_workflow_run_ids", mode="before")
+    @classmethod
+    def _coerce_mounted_workflow_run_ids(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        tokens: list[str] = []
+        if isinstance(value, str):
+            tokens = [part.strip() for part in value.split(",")]
+        elif isinstance(value, list):
+            for item in value:
+                text = str(item or "").strip()
+                if text:
+                    tokens.append(text)
+        else:
+            text = str(value or "").strip()
+            if text:
+                tokens = [text]
+        normalized: list[str] = []
+        for token in tokens:
+            if token and token not in normalized:
+                normalized.append(token)
+        return normalized
