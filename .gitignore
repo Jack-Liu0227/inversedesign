@@ -1,7 +1,7 @@
 /db/
 src/*.db
 examples/
-agno/
+agno/*
 datasets_raw/
 # Python cache files
 __pycache__/

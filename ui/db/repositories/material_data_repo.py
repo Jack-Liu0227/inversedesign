@@ -582,43 +582,95 @@ class MaterialDataRepository:
                 "iterations": [],
                 "points": [],
                 "frontier_by_iteration": [],
+                "initial_frontier_ids": [],
+                "has_initial_dataset": False,
+                "initial_dataset_count": 0,
+                "predicted_count": 0,
             }
 
         points: list[dict[str, Any]] = []
+        predicted_points: list[dict[str, Any]] = []
+        initial_points: list[dict[str, Any]] = []
+        initial_dataset_count = 0
         iterations_set: set[int] = set()
         for row in rows:
             predicted_map = row.get("predicted_values_map", {})
-            if not isinstance(predicted_map, dict):
-                continue
-            x_value = self._coerce_float(predicted_map.get(x_prop))
-            y_value = self._coerce_float(predicted_map.get(y_prop))
             iteration = self._coerce_iteration(row.get("iteration"))
-            if x_value is None or y_value is None or iteration is None:
-                continue
-            iterations_set.add(iteration)
-            points.append(
-                {
-                    "id": int(row.get("id") or 0),
-                    "iteration": iteration,
-                    "x": round(x_value, 6),
-                    "y": round(y_value, 6),
-                    "source_name": str(row.get("source_name") or ""),
-                    "material_type": str(row.get("material_type") or ""),
-                }
-            )
+            row_id = int(row.get("id") or 0)
+            source = str(row.get("source") or "").strip().lower()
+            source_name = str(row.get("source_name") or "")
+            material_type = str(row.get("material_type") or "")
+
+            if isinstance(predicted_map, dict) and iteration is not None:
+                x_value = self._coerce_float(predicted_map.get(x_prop))
+                y_value = self._coerce_float(predicted_map.get(y_prop))
+                if x_value is not None and y_value is not None:
+                    iterations_set.add(iteration)
+                    point = {
+                        "id": row_id,
+                        "iteration": iteration,
+                        "x": round(x_value, 6),
+                        "y": round(y_value, 6),
+                        "source_name": source_name,
+                        "material_type": material_type,
+                        "point_kind": "predicted",
+                        "source_group": "predicted",
+                    }
+                    points.append(point)
+                    predicted_points.append(point)
+
+            target_map = row.get("target_values_map", {})
+            if source == "csv" and isinstance(target_map, dict):
+                x_value = self._coerce_float(target_map.get(x_prop))
+                y_value = self._coerce_float(target_map.get(y_prop))
+                if x_value is not None and y_value is not None:
+                    points.append(
+                        {
+                            "id": row_id,
+                            "iteration": 0,
+                            "x": round(x_value, 6),
+                            "y": round(y_value, 6),
+                            "source_name": source_name,
+                            "material_type": material_type,
+                            "point_kind": "initial_dataset",
+                            "source_group": "initial_dataset",
+                        }
+                    )
+                    initial_points.append(points[-1])
+                    initial_dataset_count += 1
         iterations = sorted(iterations_set)
-        sorted_points = sorted(points, key=lambda item: (int(item["iteration"]), int(item["id"])))
+        sorted_points = sorted(
+            points,
+            key=lambda item: (
+                1 if str(item.get("point_kind") or "") == "initial_dataset" else 0,
+                int(item["iteration"]),
+                int(item["id"]),
+            ),
+        )
+        sorted_predicted_points = sorted(predicted_points, key=lambda item: (int(item["iteration"]), int(item["id"])))
+        sorted_initial_points = sorted(initial_points, key=lambda item: int(item["id"]))
         frontier_by_iteration: list[dict[str, Any]] = []
         x_direction = objective_map.get(x_prop, "max")
         y_direction = objective_map.get(y_prop, "max")
+        initial_frontier_ids = self._pareto_frontier_ids(
+            sorted_initial_points,
+            x_direction=x_direction,
+            y_direction=y_direction,
+        )
         for iteration in iterations:
-            visible_points = [item for item in sorted_points if int(item["iteration"]) <= iteration]
+            visible_points = [item for item in sorted_predicted_points if int(item["iteration"]) <= iteration]
+            combined_points = [*visible_points, *sorted_initial_points]
             frontier_by_iteration.append(
                 {
                     "iteration": iteration,
                     "visible_ids": [int(item["id"]) for item in visible_points],
-                    "frontier_ids": self._pareto_frontier_ids(
+                    "predicted_frontier_ids": self._pareto_frontier_ids(
                         visible_points,
+                        x_direction=x_direction,
+                        y_direction=y_direction,
+                    ),
+                    "combined_frontier_ids": self._pareto_frontier_ids(
+                        combined_points,
                         x_direction=x_direction,
                         y_direction=y_direction,
                     ),
@@ -632,6 +684,10 @@ class MaterialDataRepository:
             "iterations": iterations,
             "points": sorted_points,
             "frontier_by_iteration": frontier_by_iteration,
+            "initial_frontier_ids": initial_frontier_ids,
+            "has_initial_dataset": initial_dataset_count > 0,
+            "initial_dataset_count": initial_dataset_count,
+            "predicted_count": len(sorted_predicted_points),
         }
 
     @staticmethod

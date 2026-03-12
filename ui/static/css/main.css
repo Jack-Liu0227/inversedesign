@@ -433,6 +433,33 @@ button:hover {
   font-size: 11px;
 }
 
+.viz-toggle-option {
+  display: inline-grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid rgba(166, 151, 131, 0.55);
+  border-radius: 14px;
+  background: rgba(255, 250, 241, 0.84);
+}
+
+.viz-toggle-option input {
+  margin: 0;
+  padding: 0;
+}
+
+.viz-toggle-option small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.viz-toggle-option.is-disabled {
+  opacity: 0.6;
+}
+
 .viz-chart-shell {
   border: 1px solid rgba(166, 151, 131, 0.45);
   border-radius: 20px;

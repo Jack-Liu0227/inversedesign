@@ -164,6 +164,14 @@
           <select id="pareto-y-select" onchange="handleParetoAxisChange()"></select>
         </label>
       </div>
+      <div class="viz-controls">
+        <label class="viz-toggle-option" id="pareto-initial-toggle-shell">
+          <input id="pareto-initial-toggle" type="checkbox" onchange="handleParetoInitialDatasetToggle(this.checked)">
+          <span>Overlay initial dataset</span>
+          <small id="pareto-initial-toggle-note">Reference points stay outside the predicted frontier calculation.</small>
+        </label>
+      </div>
+      <div class="viz-controls" id="pareto-frontier-mode-controls"></div>
       <div class="viz-slider-row">
         <label class="viz-slider-label" for="pareto-iteration-range">Visible up to iteration</label>
         <input id="pareto-iteration-range" type="range" min="0" max="0" value="0" step="1" oninput="handleParetoIterationChange(this.value)">
@@ -350,6 +358,8 @@ const MATERIAL_ANALYTICS_STATE = {
   pareto: null,
   trend: null,
   rowCount: 0,
+  showInitialDataset: false,
+  selectedParetoFrontiers: ['predicted'],
 };
 let MATERIAL_VIZ_ID_SEQ = 0;
 
@@ -617,6 +627,10 @@ function renderParetoControls(pareto) {
   const available = MATERIAL_ANALYTICS_STATE.availableProperties || [];
   const xSelect = document.getElementById('pareto-x-select');
   const ySelect = document.getElementById('pareto-y-select');
+  const toggle = document.getElementById('pareto-initial-toggle');
+  const toggleShell = document.getElementById('pareto-initial-toggle-shell');
+  const toggleNote = document.getElementById('pareto-initial-toggle-note');
+  const modeHost = document.getElementById('pareto-frontier-mode-controls');
   if (!xSelect || !ySelect) return;
   const xValue = pareto.x_property || '';
   const yValue = pareto.y_property || '';
@@ -624,7 +638,59 @@ function renderParetoControls(pareto) {
   ySelect.innerHTML = available.map((prop) => `<option value="${escapeHtml(prop)}" ${prop === yValue ? 'selected' : ''}>${escapeHtml(prop)}</option>`).join('');
   if (xValue) xSelect.value = xValue;
   if (yValue) ySelect.value = yValue;
+  if (toggle && toggleShell && toggleNote) {
+    const hasInitialDataset = Boolean(pareto.has_initial_dataset);
+    toggle.checked = hasInitialDataset ? Boolean(MATERIAL_ANALYTICS_STATE.showInitialDataset) : false;
+    toggle.disabled = !hasInitialDataset;
+    toggleShell.classList.toggle('is-disabled', !hasInitialDataset);
+    toggleShell.hidden = !hasInitialDataset;
+    toggleNote.textContent = hasInitialDataset
+      ? `Reference points available: ${formatInteger(Number(pareto.initial_dataset_count || 0))}. They do not change the predicted frontier.`
+      : 'No initial dataset reference points are available for the current filters.';
+  }
+  renderParetoFrontierModeControls(pareto, modeHost);
   syncAnalyticsQueryInputs();
+}
+
+function renderParetoFrontierModeControls(pareto, host) {
+  if (!host) return;
+  const hasInitialDataset = Boolean(pareto.has_initial_dataset);
+  const options = [
+    {
+      value: 'predicted',
+      label: 'Predicted frontier',
+      note: 'Cumulative frontier from predicted points only.',
+      hidden: false,
+    },
+    {
+      value: 'initial',
+      label: 'Initial frontier',
+      note: 'Frontier from initial dataset points only.',
+      hidden: !hasInitialDataset,
+    },
+    {
+      value: 'combined',
+      label: 'Combined frontier',
+      note: 'Frontier from predicted and initial points together.',
+      hidden: !hasInitialDataset,
+    },
+  ].filter((item) => !item.hidden);
+  const selected = new Set(MATERIAL_ANALYTICS_STATE.selectedParetoFrontiers || []);
+  if (!selected.size || !options.some((item) => selected.has(item.value))) {
+    MATERIAL_ANALYTICS_STATE.selectedParetoFrontiers = ['predicted'];
+  }
+  host.innerHTML = options.map((item) => `
+    <label class="viz-toggle-option">
+      <input
+        type="checkbox"
+        value="${item.value}"
+        ${selected.has(item.value) ? 'checked' : ''}
+        onchange="handleParetoFrontierModeChange()"
+      >
+      <span>${item.label}</span>
+      <small>${item.note}</small>
+    </label>
+  `).join('');
 }
 
 function handleParetoAxisChange() {
@@ -641,6 +707,19 @@ function handleParetoAxisChange() {
 function handleParetoIterationChange(value) {
   const label = document.getElementById('pareto-iteration-label');
   if (label) label.textContent = String(value || '-');
+  renderParetoChart();
+}
+
+function handleParetoInitialDatasetToggle(checked) {
+  MATERIAL_ANALYTICS_STATE.showInitialDataset = Boolean(checked);
+  renderParetoChart();
+}
+
+function handleParetoFrontierModeChange() {
+  const selected = Array.from(document.querySelectorAll('#pareto-frontier-mode-controls input:checked'))
+    .map((input) => String(input.value || '').trim())
+    .filter(Boolean);
+  MATERIAL_ANALYTICS_STATE.selectedParetoFrontiers = selected.length ? selected : ['predicted'];
   renderParetoChart();
 }
 
@@ -895,9 +974,17 @@ function renderParetoChart() {
   const activeIteration = Number(slider.value);
   const snapshot = (pareto.frontier_by_iteration || []).find((item) => Number(item.iteration) === activeIteration) || pareto.frontier_by_iteration[pareto.frontier_by_iteration.length - 1];
   const visibleIds = new Set(snapshot?.visible_ids || []);
-  const frontierIds = new Set(snapshot?.frontier_ids || []);
-  const visiblePoints = (pareto.points || []).filter((point) => visibleIds.has(Number(point.id)));
-  if (visiblePoints.length === 0) {
+  const predictedFrontierIds = new Set(snapshot?.predicted_frontier_ids || []);
+  const initialFrontierIds = new Set(pareto.initial_frontier_ids || []);
+  const combinedFrontierIds = new Set(snapshot?.combined_frontier_ids || []);
+  const allPoints = Array.isArray(pareto.points) ? pareto.points : [];
+  const predictedVisiblePoints = allPoints.filter((point) => String(point.point_kind || 'predicted') === 'predicted' && visibleIds.has(Number(point.id)));
+  const selectedFrontiers = new Set(MATERIAL_ANALYTICS_STATE.selectedParetoFrontiers || ['predicted']);
+  const shouldForceInitialPoints = selectedFrontiers.has('initial') || selectedFrontiers.has('combined');
+  const initialDatasetPoints = (MATERIAL_ANALYTICS_STATE.showInitialDataset || shouldForceInitialPoints)
+    ? allPoints.filter((point) => String(point.point_kind || '') === 'initial_dataset')
+    : [];
+  if (predictedVisiblePoints.length === 0) {
     svg.innerHTML = renderChartEmptyState('No Pareto points are available for the current iteration.');
     meta.textContent = 'Adjust the selected properties or filters.';
     return;
@@ -907,8 +994,9 @@ function renderParetoChart() {
   const height = 360;
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
-  const xs = visiblePoints.map((point) => Number(point.x));
-  const ys = visiblePoints.map((point) => Number(point.y));
+  const plottedPoints = [...predictedVisiblePoints, ...initialDatasetPoints];
+  const xs = plottedPoints.map((point) => Number(point.x));
+  const ys = plottedPoints.map((point) => Number(point.y));
   let minX = Math.min(...xs);
   let maxX = Math.max(...xs);
   let minY = Math.min(...ys);
@@ -922,25 +1010,75 @@ function renderParetoChart() {
   const yScale = (value) => padding.top + (1 - ((value - minY) / (maxY - minY))) * plotHeight;
   const yTicks = Array.from({ length: 5 }, (_, idx) => minY + ((maxY - minY) * idx) / 4);
   const xTicks = Array.from({ length: 5 }, (_, idx) => minX + ((maxX - minX) * idx) / 4);
-  const frontierPoints = visiblePoints.filter((point) => frontierIds.has(Number(point.id)));
-  const nonFrontierPoints = visiblePoints.filter((point) => !frontierIds.has(Number(point.id)));
+  const frontierPoints = predictedVisiblePoints.filter((point) => predictedFrontierIds.has(Number(point.id)));
+  const nonFrontierPoints = predictedVisiblePoints.filter((point) => !predictedFrontierIds.has(Number(point.id)));
   const minIteration = Math.min(...iterations);
   const maxIteration = Math.max(...iterations);
   renderParetoColorbar(minIteration, maxIteration);
-  let frontierPath = '';
-  if (frontierPoints.length > 1) {
-    const sortedFrontier = [...frontierPoints].sort((a, b) => Number(a.x) - Number(b.x));
-    frontierPath = sortedFrontier.map((point, index) => `${index === 0 ? 'M' : 'L'} ${xScale(Number(point.x)).toFixed(2)} ${yScale(Number(point.y)).toFixed(2)}`).join(' ');
-  }
-  const renderPointGroup = (points, radius, strokeWidth, opacityBoost = 0) => points.map((point) => {
+  const buildFrontierPath = (points) => {
+    if ((points || []).length <= 1) return '';
+    const sortedFrontier = [...points].sort((a, b) => Number(a.x) - Number(b.x));
+    return sortedFrontier.map((point, index) => `${index === 0 ? 'M' : 'L'} ${xScale(Number(point.x)).toFixed(2)} ${yScale(Number(point.y)).toFixed(2)}`).join(' ');
+  };
+  const renderPredictedPointGroup = (points, radius, strokeWidth, opacityBoost = 0) => points.map((point) => {
     const color = getIterationColor(Number(point.iteration), minIteration, maxIteration, opacityBoost);
     const stroke = getIterationStrokeColor(Number(point.iteration), minIteration, maxIteration);
     return `
     <circle cx="${xScale(Number(point.x)).toFixed(2)}" cy="${yScale(Number(point.y)).toFixed(2)}" r="${radius}" fill="${color}" stroke="${stroke}" stroke-width="${strokeWidth}">
-      <title>#${point.id} | iteration ${point.iteration} | ${escapeHtml(pareto.x_property)}=${formatNumber(point.x)} | ${escapeHtml(pareto.y_property)}=${formatNumber(point.y)}${point.source_name ? ` | ${escapeHtml(point.source_name)}` : ''}</title>
+      <title>#${point.id} | Predicted | iteration ${point.iteration} | ${escapeHtml(pareto.x_property)}=${formatNumber(point.x)} | ${escapeHtml(pareto.y_property)}=${formatNumber(point.y)}${point.source_name ? ` | ${escapeHtml(point.source_name)}` : ''}</title>
     </circle>
   `;
   }).join('');
+  const referenceColor = '#7f8f8a';
+  const referenceStroke = '#546e67';
+  const renderInitialDatasetPoints = (points) => points.map((point, index) => renderParetoReferenceMarker({
+    cx: xScale(Number(point.x)),
+    cy: yScale(Number(point.y)),
+    shape: 'diamond',
+    fillColor: 'rgba(246, 252, 249, 0.72)',
+    strokeColor: referenceStroke,
+    size: 5.6,
+    strokeWidth: 1.7,
+    title: `#${point.id} | Initial dataset | ${pareto.x_property}=${formatNumber(point.x)} | ${pareto.y_property}=${formatNumber(point.y)}${point.source_name ? ` | ${point.source_name}` : ''}`,
+  })).join('');
+  const predictedFrontierPoints = predictedVisiblePoints.filter((point) => predictedFrontierIds.has(Number(point.id)));
+  const initialFrontierPoints = initialDatasetPoints.filter((point) => initialFrontierIds.has(Number(point.id)));
+  const combinedFrontierPoints = [...predictedVisiblePoints, ...initialDatasetPoints].filter((point) => combinedFrontierIds.has(Number(point.id)));
+  const frontierModes = [
+    {
+      key: 'predicted',
+      label: 'Predicted frontier',
+      points: predictedFrontierPoints,
+      path: buildFrontierPath(predictedFrontierPoints),
+      stroke: '#b13f73',
+      dash: '8 5',
+    },
+    {
+      key: 'initial',
+      label: 'Initial frontier',
+      points: initialFrontierPoints,
+      path: buildFrontierPath(initialFrontierPoints),
+      stroke: '#5f7b74',
+      dash: '2 6',
+    },
+    {
+      key: 'combined',
+      label: 'Combined frontier',
+      points: combinedFrontierPoints,
+      path: buildFrontierPath(combinedFrontierPoints),
+      stroke: '#255f85',
+      dash: '14 6 3 6',
+    },
+  ].filter((item) => selectedFrontiers.has(item.key));
+  const legend = [
+    `<div class="viz-legend-item"><span class="viz-legend-marker">${renderTrendLegendMarker('circle', '#55b0a9')}</span><span>Predicted points</span></div>`,
+  ];
+  frontierModes.forEach((item) => {
+    legend.push(`<div class="viz-legend-item"><span class="viz-legend-marker">${renderParetoLegendLineMarker(item.stroke, item.dash)}</span><span>${item.label}</span></div>`);
+  });
+  if (pareto.has_initial_dataset) {
+    legend.push(`<div class="viz-legend-item"><span class="viz-legend-marker">${renderParetoReferenceLegendMarker(referenceColor, referenceStroke)}</span><span>Initial dataset reference${(MATERIAL_ANALYTICS_STATE.showInitialDataset || shouldForceInitialPoints) ? '' : ' (hidden)'}</span></div>`);
+  }
   svg.innerHTML = `
     ${renderChartFrame({
       width,
@@ -955,16 +1093,22 @@ function renderParetoChart() {
       xLabel: `${pareto.x_property} (${pareto.x_direction === 'min' ? 'min' : 'max'})`,
       yLabel: `${pareto.y_property} (${pareto.y_direction === 'min' ? 'min' : 'max'})`,
     })}
-    ${frontierPath ? `<path d="${frontierPath}" fill="none" stroke="#b13f73" stroke-width="3" stroke-dasharray="8 5"></path>` : ''}
-    ${renderPointGroup(nonFrontierPoints, 5, 1.4, 0)}
-    ${renderPointGroup(frontierPoints, 6.8, 2.1, 0.2)}
+    ${renderInitialDatasetPoints(initialDatasetPoints)}
+    ${frontierModes.map((item) => item.path ? `<path d="${item.path}" fill="none" stroke="${item.stroke}" stroke-width="3" stroke-dasharray="${item.dash}"></path>` : '').join('')}
+    ${renderPredictedPointGroup(nonFrontierPoints, 5, 1.4, 0)}
+    ${renderPredictedPointGroup(frontierPoints, 6.8, 2.1, 0.2)}
   `;
   meta.innerHTML = `
-    <span>Visible points: ${visiblePoints.length}</span>
-    <span>Frontier points: ${frontierPoints.length}</span>
+    <span>Predicted points: ${predictedVisiblePoints.length}</span>
+    <span>Predicted frontier points: ${predictedFrontierPoints.length}</span>
+    ${selectedFrontiers.has('initial') ? `<span>Initial frontier points: ${initialFrontierPoints.length}</span>` : ''}
+    ${selectedFrontiers.has('combined') ? `<span>Combined frontier points: ${combinedFrontierPoints.length}</span>` : ''}
+    <span>Initial dataset reference: ${initialDatasetPoints.length}</span>
     <span>Iteration window: cumulative up to ${activeIteration}</span>
     <span>Frontier rule: ${pareto.x_direction === 'min' ? 'minimize' : 'maximize'} ${escapeHtml(pareto.x_property)}, ${pareto.y_direction === 'min' ? 'minimize' : 'maximize'} ${escapeHtml(pareto.y_property)}</span>
-    <span>Point color: early iteration = cool, late iteration = warm</span>
+    <span>Point color: predicted iterations use cool-to-warm progression.</span>
+    <span>Active frontiers: ${Array.from(selectedFrontiers).join(', ')}</span>
+    <div class="viz-legend">${legend.join('')}</div>
   `;
 }
 
@@ -1101,6 +1245,37 @@ function resolveTrendSampleColor(sampleColorMap, sampleKey, fallbackColor) {
 
 function renderTrendLegendMarker(shape, color) {
   return renderTrendMarkerSvg(shape, color, 16, 16, 6, true);
+}
+
+function renderParetoLegendLineMarker(stroke = '#b13f73', dash = '4 2') {
+  return `
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M 1 11 L 15 5" fill="none" stroke="${stroke}" stroke-width="2.2" stroke-dasharray="${dash}" stroke-linecap="round"></path>
+    </svg>
+  `;
+}
+
+function renderParetoReferenceLegendMarker(fillColor, strokeColor) {
+  return `
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M 8 2 L 13 8 L 8 14 L 3 8 Z" fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.4"></path>
+    </svg>
+  `;
+}
+
+function renderParetoReferenceMarker({ cx, cy, shape, fillColor, strokeColor, size, strokeWidth = 1.6, title = '' }) {
+  const marker = String(shape || 'diamond');
+  const centerX = Number(cx);
+  const centerY = Number(cy);
+  const half = Number(size);
+  let geometry = '';
+  if (marker === 'square') {
+    geometry = `<rect x="${(centerX - half).toFixed(2)}" y="${(centerY - half).toFixed(2)}" width="${(half * 2).toFixed(2)}" height="${(half * 2).toFixed(2)}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"></rect>`;
+  } else {
+    geometry = `<path d="M ${centerX.toFixed(2)} ${(centerY - half).toFixed(2)} L ${(centerX + half).toFixed(2)} ${centerY.toFixed(2)} L ${centerX.toFixed(2)} ${(centerY + half).toFixed(2)} L ${(centerX - half).toFixed(2)} ${centerY.toFixed(2)} Z" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"></path>`;
+  }
+  const titleMarkup = title ? `<title>${escapeHtml(title)}</title>` : '';
+  return `<g>${titleMarkup}${geometry}</g>`;
 }
 
 function renderTrendDot({ cx, cy, color, markerShape, radius, opacity, title, strokeWidth = 1.2 }) {
