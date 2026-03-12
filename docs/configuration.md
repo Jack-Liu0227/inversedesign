@@ -137,6 +137,15 @@ python src/run_workflow.py
 uvicorn ui.app:app --reload --port 8010
 ```
 
+### AgentOS API
+
+```bash
+python src/run_agent_os.py --host 0.0.0.0 --port 8000 --reload
+```
+
+This startup path uses Uvicorn `wsproto` for WebSocket transport to avoid intermittent
+`keepalive ping failed` assertion errors triggered by the `websockets` legacy protocol.
+
 ### Health check
 
 The UI exposes:

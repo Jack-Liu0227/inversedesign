@@ -138,6 +138,14 @@ uvicorn ui.app:app --reload --port 8010
 
 After startup, open [http://127.0.0.1:8010](http://127.0.0.1:8010).
 
+### Run AgentOS API (workflow + sessions endpoints)
+
+```bash
+python src/run_agent_os.py --host 0.0.0.0 --port 8000 --reload
+```
+
+This launcher forces Uvicorn's `wsproto` backend to avoid intermittent WebSocket keepalive assertion failures from the `websockets` legacy protocol.
+
 ## UI Pages At A Glance
 
 | Page | Purpose |

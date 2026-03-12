@@ -333,6 +333,49 @@ class DocEvolutionRepository:
             key_values=key_values,
         )
 
+    def batch_delete_by_workflow_run_ids(self, workflow_run_ids: list[str]) -> dict[str, Any]:
+        unique_run_ids: list[str] = []
+        for raw in workflow_run_ids:
+            value = str(raw or "").strip()
+            if not value or value.startswith("bootstrap-only:") or value in unique_run_ids:
+                continue
+            unique_run_ids.append(value)
+        if not unique_run_ids:
+            return {
+                "filter_col": "workflow_run_id",
+                "filter_values": [],
+                "deleted": 0,
+                "details": [],
+                "errors": [],
+                "scanned_tables": 0,
+            }
+
+        deleted_total = 0
+        scanned_tables = 0
+        details: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
+        for workflow_run_id in unique_run_ids:
+            result = self._explorer.delete_by_workflow_run_id_across_workflow_dbs_to_recycle_bin(
+                workflow_run_id=workflow_run_id
+            )
+            deleted_total += int(result.get("deleted", 0) or 0)
+            scanned_tables = max(scanned_tables, int(result.get("scanned_tables", 0) or 0))
+            for item in result.get("details", []) or []:
+                if isinstance(item, dict):
+                    details.append({"workflow_run_id": workflow_run_id, **item})
+            for item in result.get("errors", []) or []:
+                if isinstance(item, dict):
+                    errors.append({"workflow_run_id": workflow_run_id, **item})
+
+        return {
+            "filter_col": "workflow_run_id",
+            "filter_values": unique_run_ids,
+            "deleted": int(deleted_total),
+            "details": details,
+            "errors": errors,
+            "scanned_tables": int(scanned_tables),
+        }
+
     def build_diff(self, *, left_doc_ids: list[int], right_doc_ids: list[int]) -> dict[str, Any]:
         left = self._load_docs_by_ids(left_doc_ids)
         right = self._load_docs_by_ids(right_doc_ids)

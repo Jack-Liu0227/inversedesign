@@ -357,6 +357,25 @@ async def batch_delete_docs(
     return {"ok": True, **result}
 
 
+@router.post("/docs/delete-by-workflow-run-ids")
+async def batch_delete_docs_by_workflow_run_ids(
+    payload: dict[str, object] | None = Body(None),
+    doc_evolution_repository: DocEvolutionRepository = Depends(get_doc_evolution_repository),
+) -> dict[str, object]:
+    body = payload or {}
+    raw_run_ids = body.get("workflow_run_ids", [])
+    if not isinstance(raw_run_ids, list):
+        raise HTTPException(status_code=400, detail="workflow_run_ids must be a list")
+    workflow_run_ids = [str(raw or "").strip() for raw in raw_run_ids if str(raw or "").strip()]
+    if not workflow_run_ids:
+        raise HTTPException(status_code=400, detail="workflow_run_ids is empty or invalid")
+    result = await run_in_threadpool(
+        doc_evolution_repository.batch_delete_by_workflow_run_ids,
+        workflow_run_ids,
+    )
+    return {"ok": True, **result}
+
+
 @router.get("/docs/diff")
 async def diff_docs(
     left_doc_ids: str = "",

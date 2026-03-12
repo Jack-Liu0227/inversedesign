@@ -11,6 +11,9 @@
       <h3>Filters</h3>
       <div class="meta-pills">
         <button type="button" class="ghost-btn" onclick="deleteSelectedDocCells()">Delete Selected</button>
+        {% if query.workflow_run_id and query.workflow_run_id[:15] != 'bootstrap-only:' %}
+        <button type="button" class="ghost-btn" onclick='deleteFilteredWorkflowRun({{ query.workflow_run_id|tojson }})'>Delete Filtered Run</button>
+        {% endif %}
         <span class="pill">runs: {{ total_runs }}</span>
       </div>
     </div>
@@ -175,6 +178,7 @@
 
 <script>
 let _docEvoSelectionCounter = 0;
+const DOC_EVO_FILTERED_WORKFLOW_RUN_ID = {{ query.workflow_run_id|tojson }};
 
 function _parseDataJson(attr) {
   try { return JSON.parse(attr || '[]'); } catch (_) { return []; }
@@ -229,6 +233,11 @@ function refreshDiffMetaFromSelection() {
 }
 
 async function deleteSelectedDocCells() {
+  const filteredWorkflowRunId = String(DOC_EVO_FILTERED_WORKFLOW_RUN_ID || '').trim();
+  if (filteredWorkflowRunId && !filteredWorkflowRunId.startsWith('bootstrap-only:')) {
+    await deleteFilteredWorkflowRun(filteredWorkflowRunId);
+    return;
+  }
   const docIds = _collectSelectedDocIds();
   if (docIds.length === 0) {
     alert('Please select at least one cell first.');
@@ -244,6 +253,28 @@ async function deleteSelectedDocCells() {
     alert('Batch delete failed.');
     return;
   }
+  window.location.reload();
+}
+
+async function deleteFilteredWorkflowRun(workflowRunId) {
+  const runId = String(workflowRunId || '').trim();
+  if (!runId || runId.startsWith('bootstrap-only:')) {
+    alert('Please choose a valid workflow_run_id first.');
+    return;
+  }
+  if (!confirm(`Delete all persisted records for workflow_run_id=${runId} across databases?`)) return;
+  const res = await fetch('/api/material-data/docs/delete-by-workflow-run-ids', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workflow_run_ids: [runId] }),
+  });
+  if (!res.ok) {
+    alert('Delete by workflow_run_id failed.');
+    return;
+  }
+  const data = await res.json().catch(() => ({}));
+  const deleted = Number(data?.deleted || 0);
+  alert(`Deleted ${deleted} row(s) for workflow_run_id=${runId}.`);
   window.location.reload();
 }
 

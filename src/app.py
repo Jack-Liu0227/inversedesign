@@ -46,4 +46,4 @@ agent_os = AgentOS(
 app = agent_os.get_app()
 
 # Start AgentOS API service:
-# uvicorn src.app:app --host 0.0.0.0 --port 8000 --reload
+# python src/run_agent_os.py --host 0.0.0.0 --port 8000 --reload
